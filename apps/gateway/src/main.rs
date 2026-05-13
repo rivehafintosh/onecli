@@ -75,6 +75,7 @@ use crate::ca::CertificateAuthority;
 use crate::connect::PolicyEngine;
 use crate::gateway::GatewayServer;
 use crate::vault::bitwarden::{BitwardenConfig, BitwardenVaultProvider};
+use crate::vault::hashicorp::HashicorpVaultProvider;
 use crate::vault::VaultService;
 
 #[derive(Parser)]
@@ -174,7 +175,13 @@ async fn main() -> Result<()> {
         Arc::clone(&crypto),
     );
     let vault_service = Arc::new(VaultService::new(
-        vec![Box::new(bitwarden)],
+        vec![
+            Box::new(bitwarden),
+            Box::new(HashicorpVaultProvider::new(
+                policy_engine.pool.clone(),
+                Arc::clone(&crypto),
+            )),
+        ],
         policy_engine.pool.clone(),
     ));
     info!("vault service initialized");
