@@ -17,6 +17,7 @@ import { cn } from "@onecli/ui/lib/utils";
 import {
   useVaultStatus,
   type BitwardenStatusData,
+  type HashicorpVaultStatusData,
   type OnePasswordStatusData,
 } from "@/hooks/use-vault-status";
 import { withProjectPrefix } from "@/lib/navigation";
@@ -26,6 +27,7 @@ export const VaultsTab = () => {
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <BitwardenCard />
       <OnePasswordCard />
+      <HashicorpVaultCard />
     </div>
   );
 };
@@ -243,6 +245,116 @@ const OnePasswordCard = () => {
               href={withProjectPrefix(
                 pathname,
                 "/connections/vaults/onepassword",
+              )}
+            >
+              {isPaired ? "Manage" : "Connect"}
+            </Link>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+const HashicorpVaultCard = () => {
+  const pathname = usePathname();
+  const { loading, isPaired, isReady, status } =
+    useVaultStatus<HashicorpVaultStatusData>("hashicorp-vault");
+
+  if (loading) {
+    return (
+      <Card className="relative overflow-hidden flex flex-col">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Skeleton className="size-10 rounded-lg" />
+              <Skeleton className="h-5 w-36" />
+            </div>
+            <Skeleton className="h-5 w-20 rounded-full" />
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-1 flex-col">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="mt-1 h-4 w-3/4" />
+          <div className="mt-auto pt-4">
+            <Skeleton className="h-8 w-full rounded-md" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card
+      className={cn(
+        "relative overflow-hidden flex flex-col",
+        isPaired && isReady && "border-brand/30",
+        isPaired && !isReady && "border-red-500/30",
+      )}
+    >
+      {isPaired && isReady && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-brand" />
+      )}
+      {isPaired && !isReady && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-red-500" />
+      )}
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-muted flex size-10 items-center justify-center rounded-lg font-mono text-xs font-semibold text-muted-foreground">
+              HV
+            </div>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base">HashiCorp Vault</CardTitle>
+              <Badge
+                variant="secondary"
+                className="text-[10px] font-normal px-1.5 py-0"
+              >
+                Beta
+              </Badge>
+            </div>
+          </div>
+          {isPaired ? (
+            <div className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  "size-2 rounded-full",
+                  isReady ? "bg-brand" : "bg-red-500",
+                )}
+              />
+              <span
+                className={cn(
+                  "text-xs font-medium",
+                  isReady ? "text-brand" : "text-red-600 dark:text-red-400",
+                )}
+              >
+                {isReady ? "Connected" : "Error"}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col">
+        <CardDescription>
+          Fetch agent credentials from Vault KV secrets using per-host mappings.
+        </CardDescription>
+        {status?.status_data?.mappings_count ? (
+          <p className="text-muted-foreground mt-3 text-xs">
+            {status.status_data.mappings_count} configured mapping
+            {status.status_data.mappings_count === 1 ? "" : "s"}
+          </p>
+        ) : null}
+        <div className="mt-auto pt-4">
+          <Button
+            size="sm"
+            variant={isPaired ? "outline" : "default"}
+            className="w-full"
+            asChild
+          >
+            <Link
+              href={withProjectPrefix(
+                pathname,
+                "/connections/vaults/hashicorp-vault",
               )}
             >
               {isPaired ? "Manage" : "Connect"}

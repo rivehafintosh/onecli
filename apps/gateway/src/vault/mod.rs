@@ -6,6 +6,7 @@
 pub(crate) mod api;
 pub(crate) mod bitwarden;
 pub(crate) mod bitwarden_db;
+pub(crate) mod hashicorp;
 pub(crate) mod onepassword;
 pub(crate) mod onepassword_api;
 
