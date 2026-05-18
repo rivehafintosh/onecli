@@ -50,9 +50,14 @@ RUN pnpm install --frozen-lockfile
 # ──────────────────────────────────────────────
 FROM base AS builder
 ENV NEXT_TELEMETRY_DISABLED=1
-
+ARG NEXT_PUBLIC_APP_URL=http://localhost:10254
+ARG NEXT_PUBLIC_API_URL=http://localhost:10255
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 COPY --from=deps /app/ .
 COPY --from=pruner /app/out/full/ .
+COPY --from=gateway-builder /build/target/release/onecli-gateway /tmp/onecli-gateway-build-order
+RUN rm -f /tmp/onecli-gateway-build-order
 RUN pnpm --filter @onecli/db generate
 # Dummy DATABASE_URL satisfies Prisma during static page generation
 RUN --mount=type=cache,target=/app/apps/web/.next/cache \
