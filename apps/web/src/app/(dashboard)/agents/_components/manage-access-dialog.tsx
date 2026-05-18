@@ -102,6 +102,7 @@ export const ManageAccessDialog = ({
       const projectSecrets: typeof allSecrets = [];
       const orgSecretsList: typeof allSecrets = [];
       for (const s of allSecrets) {
+        if (s.source === "vault") continue;
         (s.scope === "organization" ? orgSecretsList : projectSecrets).push(s);
       }
       setSecrets(projectSecrets);

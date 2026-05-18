@@ -41,6 +41,10 @@ interface SecretCardProps {
     injectionConfig: unknown;
     metadata: Record<string, unknown> | null;
     isPlatform: boolean;
+    source?: "db" | "vault";
+    vaultProvider?: string;
+    vaultPath?: string;
+    vaultField?: string;
     createdAt: Date;
   };
   onUpdate?: () => void;
@@ -138,8 +142,38 @@ export const SecretCard = ({
                 )}
             </div>
 
+            {secret.source === "vault" && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                {secret.vaultProvider && (
+                  <span className="text-muted-foreground">
+                    Provider{" "}
+                    <code className="bg-muted rounded px-1 py-0.5 font-mono">
+                      {secret.vaultProvider}
+                    </code>
+                  </span>
+                )}
+                {secret.vaultPath && (
+                  <span className="text-muted-foreground">
+                    Vault path{" "}
+                    <code className="bg-muted rounded px-1 py-0.5 font-mono">
+                      {secret.vaultPath}
+                    </code>
+                  </span>
+                )}
+                {secret.vaultField && (
+                  <span className="text-muted-foreground">
+                    Field{" "}
+                    <code className="bg-muted rounded px-1 py-0.5 font-mono">
+                      {secret.vaultField}
+                    </code>
+                  </span>
+                )}
+              </div>
+            )}
+
             <p className="text-muted-foreground text-xs">
-              Created {new Date(secret.createdAt).toLocaleDateString()}
+              {secret.source === "vault" ? "Mapped" : "Created"}{" "}
+              {new Date(secret.createdAt).toLocaleDateString()}
             </p>
           </div>
 

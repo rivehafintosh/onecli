@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Settings2, Shield, ShieldOff } from "lucide-react";
-import { rules as rulesApi } from "@/lib/api";
+import { rules as rulesApi, secrets as secretsApi } from "@/lib/api";
 import { queryKeys } from "@/lib/api/keys";
 import { useAgents } from "@/hooks/use-agents";
 import { useConnections } from "@/hooks/use-connections";
@@ -16,7 +16,12 @@ import { RuleCard } from "./rule-card";
 import { RuleDialog } from "./rule-dialog";
 import { AppPermissionSummary } from "./app-permission-summary";
 import type { PolicyMode } from "@onecli/api/validations/policy-rule";
-import type { AgentOption, PolicyRuleItem, RuleActions } from "./types";
+import type {
+  AgentOption,
+  EndpointOption,
+  PolicyRuleItem,
+  RuleActions,
+} from "./types";
 export type { PolicyRuleItem, AgentOption, RuleActions } from "./types";
 
 interface RulesContentProps {
@@ -47,6 +52,10 @@ export const RulesContent = ({
     queryKey: [...queryKeys.rules.list(), pageScope],
     queryFn: (getRules ?? rulesApi.list) as () => Promise<PolicyRuleItem[]>,
   });
+  const { data: secrets = [] } = useQuery({
+    queryKey: [...queryKeys.secrets.list(), pageScope],
+    queryFn: () => secretsApi.list(),
+  });
   const { data: agentsList = [] } = useAgents();
   const agents: AgentOption[] = useMemo(
     () => agentsList.map((a) => ({ id: a.id, name: a.name })),
@@ -65,6 +74,26 @@ export const RulesContent = ({
   }, [connectionsList]);
   const [createOpen, setCreateOpen] = useState(false);
 
+  const endpointOptions: EndpointOption[] = useMemo(() => {
+    const seen = new Set<string>();
+    const options: EndpointOption[] = [];
+    for (const secret of secrets) {
+      const key = `${secret.hostPattern}:${secret.pathPattern ?? ""}:${secret.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push({
+        id: secret.id,
+        name: secret.name,
+        typeLabel: secret.typeLabel,
+        hostPattern: secret.hostPattern,
+        pathPattern: secret.pathPattern,
+        source: secret.source,
+        vaultPath: "vaultPath" in secret ? secret.vaultPath : undefined,
+        vaultField: "vaultField" in secret ? secret.vaultField : undefined,
+      });
+    }
+    return options;
+  }, [secrets]);
   const isInherited = (r: PolicyRuleItem) =>
     r.scope != null && r.scope !== pageScope;
 
@@ -197,6 +226,7 @@ export const RulesContent = ({
         ruleActions={ruleActions}
         connectedProviders={connectedProviders}
         policyMode={policyMode}
+        endpointOptions={endpointOptions}
       />
     </div>
   );

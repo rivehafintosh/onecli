@@ -27,6 +27,17 @@ export interface AgentOption {
   name: string;
 }
 
+export interface EndpointOption {
+  id: string;
+  name: string;
+  typeLabel: string;
+  hostPattern: string;
+  pathPattern: string | null;
+  source?: "db" | "vault";
+  vaultPath?: string;
+  vaultField?: string;
+}
+
 export interface RuleActions {
   createRule: (input: CreatePolicyRuleInput) => Promise<unknown>;
   updateRule: (ruleId: string, input: UpdatePolicyRuleInput) => Promise<void>;

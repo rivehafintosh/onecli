@@ -33,6 +33,24 @@ const SECRET_TYPE_LABELS: Record<string, string> = {
   generic: "Generic Secret",
 };
 
+const HASHICORP_VAULT_PROVIDER = "hashicorp-vault";
+
+interface VaultCredentialMapping {
+  hostname?: unknown;
+  path?: unknown;
+  field?: unknown;
+}
+
+interface NormalizedVaultCredentialMapping {
+  hostname: string;
+  path: string;
+  field: string;
+}
+
+interface HashicorpVaultConnectionData {
+  mappings?: unknown;
+}
+
 const buildPreview = (plaintext: string): string => {
   if (plaintext.length <= 8) return "•".repeat(plaintext.length);
   return `${plaintext.slice(0, 4)}${"•".repeat(8)}${plaintext.slice(-4)}`;
@@ -80,27 +98,132 @@ const buildMetadata = (
 export type { CreateSecretInput, UpdateSecretInput };
 
 export const listSecrets = async (scope: ResourceScope) => {
-  const secrets = await db.secret.findMany({
-    where: scopeWhere(scope),
-    select: {
-      id: true,
-      name: true,
-      type: true,
-      hostPattern: true,
-      pathPattern: true,
-      injectionConfig: true,
-      metadata: true,
-      isPlatform: true,
-      scope: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const [secrets, vaultConnection] = await Promise.all([
+    db.secret.findMany({
+      where: scopeWhere(scope),
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        hostPattern: true,
+        pathPattern: true,
+        injectionConfig: true,
+        metadata: true,
+        isPlatform: true,
+        scope: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.vaultConnection.findFirst({
+      where: {
+        projectId: scope.projectId,
+        provider: HASHICORP_VAULT_PROVIDER,
+        status: "connected",
+      },
+      select: {
+        connectionData: true,
+        updatedAt: true,
+      },
+    }),
+  ]);
 
-  return secrets.map((s) => ({
+  const dbSecrets = secrets.map((s) => ({
     ...s,
     typeLabel: SECRET_TYPE_LABELS[s.type] ?? s.type,
+    source: "db" as const,
   }));
+
+  const vaultSecrets = await listHashicorpVaultSecretReferences(
+    vaultConnection?.connectionData,
+    vaultConnection?.updatedAt,
+  );
+
+  return [...dbSecrets, ...vaultSecrets];
+};
+
+const listHashicorpVaultSecretReferences = async (
+  connectionData: Prisma.JsonValue | null | undefined,
+  updatedAt: Date | undefined,
+) => {
+  const data = await decryptHashicorpConnectionData(connectionData);
+  const mappings = Array.isArray(data?.mappings) ? data.mappings : [];
+
+  return mappings.flatMap((mapping, index) => {
+    if (!isVaultCredentialMapping(mapping)) return [];
+
+    const hostname = mapping.hostname.trim();
+    const path = mapping.path.trim();
+    const field = mapping.field.trim();
+    const type = llmSecretTypeForHost(hostname) ?? "generic";
+
+    return [
+      {
+        id: `vault:${HASHICORP_VAULT_PROVIDER}:${index}:${hostname}:${path}:${field}`,
+        name: `${displayNameForHost(hostname)} via Vault`,
+        type,
+        typeLabel:
+          type === "generic"
+            ? "Vault Secret"
+            : `${SECRET_TYPE_LABELS[type]} via Vault`,
+        hostPattern: hostname,
+        pathPattern: null,
+        injectionConfig: Prisma.JsonNull,
+        isPlatform: false,
+        scope: "project",
+        createdAt: updatedAt ?? new Date(0),
+        source: "vault" as const,
+        vaultProvider: HASHICORP_VAULT_PROVIDER,
+        vaultPath: path,
+        vaultField: field,
+      },
+    ];
+  });
+};
+
+const decryptHashicorpConnectionData = async (
+  connectionData: Prisma.JsonValue | null | undefined,
+): Promise<HashicorpVaultConnectionData | null> => {
+  if (!connectionData || typeof connectionData !== "object") return null;
+  if (Array.isArray(connectionData)) return null;
+
+  const encrypted = connectionData["encrypted"];
+  if (typeof encrypted === "string") {
+    try {
+      return JSON.parse(await getCrypto().decrypt(encrypted));
+    } catch {
+      return null;
+    }
+  }
+
+  return connectionData as HashicorpVaultConnectionData;
+};
+
+const isVaultCredentialMapping = (
+  value: unknown,
+): value is NormalizedVaultCredentialMapping => {
+  if (!value || typeof value !== "object") return false;
+  const mapping = value as VaultCredentialMapping;
+  return (
+    typeof mapping.hostname === "string" &&
+    mapping.hostname.trim().length > 0 &&
+    typeof mapping.path === "string" &&
+    mapping.path.trim().length > 0 &&
+    typeof mapping.field === "string" &&
+    mapping.field.trim().length > 0
+  );
+};
+
+const llmSecretTypeForHost = (hostname: string) => {
+  if (hostname === "api.anthropic.com") return "anthropic";
+  if (hostname === "api.openai.com") return "openai";
+  return null;
+};
+
+const displayNameForHost = (hostname: string) => {
+  if (hostname === "api.anthropic.com") return "Anthropic";
+  if (hostname === "api.openai.com") return "OpenAI";
+  return hostname;
 };
 
 export const createSecret = async (

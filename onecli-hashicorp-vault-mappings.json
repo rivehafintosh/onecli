@@ -1,0 +1,167 @@
+[
+  {
+    "hostname": "api.anthropic.com",
+    "path": "openclaw/claude",
+    "field": "token"
+  },
+  {
+    "hostname": "api.elevenlabs.io",
+    "path": "openclaw/elevenlabs",
+    "field": "token"
+  },
+  {
+    "hostname": "api.openai.com",
+    "path": "openclaw/openai",
+    "field": "access_token"
+  },
+  {
+    "hostname": "api.search.brave.com",
+    "path": "openclaw/brave",
+    "field": "token"
+  },
+  {
+    "hostname": "api.telegram.org",
+    "path": "openclaw/telegram",
+    "field": "token"
+  },
+  {
+    "hostname": "api.telegram.org",
+    "path": "openclaw/telegram-coding",
+    "field": "token"
+  },
+  {
+    "hostname": "auth.openai.com",
+    "path": "openclaw/openai",
+    "field": "access_token"
+  },
+  {
+    "hostname": "auth.openai.com",
+    "path": "openclaw/openai",
+    "field": "auth_mode"
+  },
+  {
+    "hostname": "auth.openai.com",
+    "path": "openclaw/openai",
+    "field": "id_token"
+  },
+  {
+    "hostname": "auth.openai.com",
+    "path": "openclaw/openai",
+    "field": "last_refresh"
+  },
+  {
+    "hostname": "auth.openai.com",
+    "path": "openclaw/openai",
+    "field": "refresh_token"
+  },
+  {
+    "hostname": "chatgpt.com",
+    "path": "openclaw/openai",
+    "field": "access_token"
+  },
+  {
+    "hostname": "chatgpt.com",
+    "path": "openclaw/openai",
+    "field": "account_id"
+  },
+  {
+    "hostname": "chatgpt.com",
+    "path": "openclaw/openai",
+    "field": "auth_mode"
+  },
+  {
+    "hostname": "chatgpt.com",
+    "path": "openclaw/openai",
+    "field": "id_token"
+  },
+  {
+    "hostname": "chatgpt.com",
+    "path": "openclaw/openai",
+    "field": "last_refresh"
+  },
+  {
+    "hostname": "chatgpt.com",
+    "path": "openclaw/openai",
+    "field": "refresh_token"
+  },
+  {
+    "hostname": "elevenlabs.io",
+    "path": "openclaw/elevenlabs",
+    "field": "token"
+  },
+  {
+    "hostname": "generativelanguage.googleapis.com",
+    "path": "openclaw/gemini",
+    "field": "token"
+  },
+  {
+    "hostname": "gitlab.clusternucs.duckdns.org",
+    "path": "openclaw/cleos-gitlab",
+    "field": "pat"
+  },
+  {
+    "hostname": "gitlab.clusternucs.duckdns.org",
+    "path": "openclaw/cleos-gitlab-ssh",
+    "field": "private_key"
+  },
+  {
+    "hostname": "gitlab.clusternucs.duckdns.org",
+    "path": "openclaw/gitlab-project-token",
+    "field": "PAT"
+  },
+  {
+    "hostname": "graphiti.clusternucs.duckdns.org",
+    "path": "openclaw/graphiti",
+    "field": "token"
+  },
+  {
+    "hostname": "graphiti.clusternucs.duckdns.org",
+    "path": "openclaw/graphiti",
+    "field": "url"
+  },
+  {
+    "hostname": "openclaw.taildffa1.ts.net",
+    "path": "openclaw/token",
+    "field": "token"
+  },
+  {
+    "hostname": "openrouter.ai",
+    "path": "openclaw/openrouter",
+    "field": "token"
+  },
+  {
+    "hostname": "phoneunlock.clusternucs.duckdns.org",
+    "path": "openclaw/phoneunlock-jwt",
+    "field": "private_key"
+  },
+  {
+    "hostname": "phoneunlock.clusternucs.duckdns.org",
+    "path": "openclaw/phoneunlock-jwt",
+    "field": "public_key"
+  },
+  {
+    "hostname": "phoneunlock.clusternucs.duckdns.org",
+    "path": "openclaw/phoneunlock-redis",
+    "field": "url"
+  },
+  {
+    "hostname": "slack.com",
+    "path": "openclaw/slack-app-token",
+    "field": "token"
+  },
+  {
+    "hostname": "slack.com",
+    "path": "openclaw/slack-bot-token",
+    "field": "token"
+  },
+  {
+    "hostname": "wss-backup.slack.com",
+    "path": "openclaw/slack-app-token",
+    "field": "token"
+  },
+  {
+    "hostname": "wss-primary.slack.com",
+    "path": "openclaw/slack-app-token",
+    "field": "token"
+  }
+]

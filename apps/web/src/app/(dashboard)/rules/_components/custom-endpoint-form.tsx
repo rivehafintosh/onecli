@@ -39,7 +39,12 @@ import type { CreateRuleInput } from "@/lib/api";
 import { queryKeys } from "@/lib/api/keys";
 import type { RuleCondition } from "@onecli/api/validations/policy-rule";
 import { ConditionBuilder } from "@/lib/components/condition-builder";
-import type { AgentOption, PolicyRuleItem, RuleActions } from "./types";
+import type {
+  AgentOption,
+  EndpointOption,
+  PolicyRuleItem,
+  RuleActions,
+} from "./types";
 
 const METHOD_OPTIONS = [
   { value: "", label: "All methods" },
@@ -75,6 +80,7 @@ interface CustomEndpointFormProps {
   showAgentField?: boolean;
   ruleActions?: RuleActions;
   policyMode?: PolicyMode;
+  endpointOptions?: EndpointOption[];
 }
 
 export const CustomEndpointForm = ({
@@ -85,6 +91,7 @@ export const CustomEndpointForm = ({
   showAgentField = true,
   ruleActions,
   policyMode = "allow",
+  endpointOptions = [],
 }: CustomEndpointFormProps) => {
   const isDenyMode = policyMode === "deny";
   const isEdit = !!rule;
@@ -158,6 +165,16 @@ export const CustomEndpointForm = ({
     ruleActions?.createRule ??
     ((input: unknown) => rules.create(input as CreateRuleInput));
   const updateRule = ruleActions?.updateRule ?? defaultUpdateRule;
+
+  const applyEndpointOption = (optionId: string) => {
+    const option = endpointOptions.find((item) => item.id === optionId);
+    if (!option) return;
+    setHostPattern(option.hostPattern);
+    setPathPattern(option.pathPattern ?? "");
+    if (!nameTouched && !name.trim()) {
+      setName(`Rule for ${option.name}`);
+    }
+  };
 
   const handleSave = async () => {
     if (!isValid) return;
@@ -275,6 +292,29 @@ export const CustomEndpointForm = ({
       {/* ── Step 1: Endpoint ─────────────────────────────────── */}
       {step === "endpoint" && (
         <div className="space-y-4 pt-5">
+          {endpointOptions.length > 0 && (
+            <div className="space-y-2">
+              <Label>Credential reference</Label>
+              <Select onValueChange={applyEndpointOption}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose a stored or vault-backed credential" />
+                </SelectTrigger>
+                <SelectContent>
+                  {endpointOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.name} · {option.hostPattern}
+                      {option.source === "vault" ? " · Vault" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-muted-foreground text-xs">
+                Selecting a credential fills the host and path used by the
+                gateway; values stay hidden.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="rule-name">Name</Label>
             <Input
