@@ -43,6 +43,24 @@ const SECRET_TYPE_LABELS: Record<string, string> = {
   generic: "Generic Secret",
 };
 
+const HASHICORP_VAULT_PROVIDER = "hashicorp-vault";
+
+interface VaultCredentialMapping {
+  hostname?: unknown;
+  path?: unknown;
+  field?: unknown;
+}
+
+interface NormalizedVaultCredentialMapping {
+  hostname: string;
+  path: string;
+  field: string;
+}
+
+interface HashicorpVaultConnectionData {
+  mappings?: unknown;
+}
+
 const buildPreview = (plaintext: string): string => {
   if (plaintext.length <= 8) return "•".repeat(plaintext.length);
   return `${plaintext.slice(0, 4)}${"•".repeat(8)}${plaintext.slice(-4)}`;

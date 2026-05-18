@@ -32,18 +32,25 @@ import {
   useVaultStatus,
   type HashicorpVaultStatusData,
 } from "@/hooks/use-vault-status";
+import { HashicorpVaultManager } from "./hashicorp-vault-manager";
 
 const PROVIDER = "hashicorp-vault";
 
 export const HashicorpVaultSetup = () => {
   const { status, loading, isPaired, isReady, fetchStatus } =
     useVaultStatus<HashicorpVaultStatusData>(PROVIDER);
-  const { pairWithPayload, pairing } = useVaultPairRequest(fetchStatus, PROVIDER);
-  const { disconnect, disconnecting } = useVaultDisconnect(fetchStatus, PROVIDER);
+  const { pairWithPayload, pairing } = useVaultPairRequest(
+    fetchStatus,
+    PROVIDER,
+  );
+  const { disconnect, disconnecting } = useVaultDisconnect(
+    fetchStatus,
+    PROVIDER,
+  );
 
   const [address, setAddress] = useState("https://vault.service.consul:8200");
   const [token, setToken] = useState("");
-  const [mount, setMount] = useState("secret");
+  const [mount, setMount] = useState("kv");
   const [pathPrefix, setPathPrefix] = useState("onecli");
   const [namespace, setNamespace] = useState("");
   const [caCertPem, setCaCertPem] = useState("");
@@ -58,7 +65,8 @@ export const HashicorpVaultSetup = () => {
     const value = mappingsJson.trim();
     if (!value) return [];
     const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) throw new Error("Mappings must be a JSON array");
+    if (!Array.isArray(parsed))
+      throw new Error("Mappings must be a JSON array");
     return parsed;
   };
 
@@ -67,14 +75,16 @@ export const HashicorpVaultSetup = () => {
     try {
       mappings = parseMappings();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Invalid mappings JSON");
+      toast.error(
+        error instanceof Error ? error.message : "Invalid mappings JSON",
+      );
       return;
     }
 
     const success = await pairWithPayload({
       address: address.trim(),
       token: token.trim(),
-      mount: mount.trim() || "secret",
+      mount: mount.trim() || "kv",
       path_prefix: pathPrefix.trim(),
       namespace: namespace.trim() || undefined,
       ca_cert_pem: caCertPem.trim() || undefined,
@@ -126,7 +136,10 @@ export const HashicorpVaultSetup = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <ReadOnlyField label="Address" value={status?.status_data?.address} />
+              <ReadOnlyField
+                label="Address"
+                value={status?.status_data?.address}
+              />
               <ReadOnlyField label="Mount" value={status?.status_data?.mount} />
               <ReadOnlyField
                 label="Path prefix"
@@ -141,11 +154,18 @@ export const HashicorpVaultSetup = () => {
                 value={String(status?.status_data?.mappings_count ?? 0)}
               />
               {status?.status_data?.namespace ? (
-                <ReadOnlyField label="Namespace" value={status.status_data.namespace} />
+                <ReadOnlyField
+                  label="Namespace"
+                  value={status.status_data.namespace}
+                />
               ) : null}
               <ReadOnlyField
                 label="Custom CA"
-                value={status?.status_data?.has_ca_cert ? "Configured" : "System trust"}
+                value={
+                  status?.status_data?.has_ca_cert
+                    ? "Configured"
+                    : "System trust"
+                }
               />
             </div>
             {!isReady ? (
@@ -165,6 +185,8 @@ export const HashicorpVaultSetup = () => {
             ) : null}
           </CardContent>
         </Card>
+
+        <HashicorpVaultManager onChanged={fetchStatus} />
 
         <Card>
           <CardHeader>
@@ -244,7 +266,7 @@ export const HashicorpVaultSetup = () => {
               id="vault-mount"
               value={mount}
               onChange={(event) => setMount(event.target.value)}
-              placeholder="secret"
+              placeholder="kv"
             />
           </div>
           <div className="grid gap-2">
@@ -297,8 +319,9 @@ export const HashicorpVaultSetup = () => {
           </div>
         </div>
         <p className="text-muted-foreground text-xs">
-          Each mapping can set hostname, path, field, and optional username_field.
-          Unmapped hosts fall back to path_prefix/hostname and token-like fields.
+          Each mapping can set hostname, path, field, and optional
+          username_field. Unmapped hosts fall back to path_prefix/hostname and
+          token-like fields.
         </p>
         <Button
           onClick={handleConnect}

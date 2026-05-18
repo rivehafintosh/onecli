@@ -537,8 +537,17 @@ pub fn vault_credential_to_rules(hostname: &str, cred: &VaultCredential) -> Vec<
         _ => return vec![],
     };
 
-    let injections = match hostname {
-        "api.anthropic.com" => vec![
+    let injections = match (hostname, password.starts_with("sk-ant-oat")) {
+        ("api.anthropic.com", true) => vec![
+            Injection::SetHeader {
+                name: "authorization".to_string(),
+                value: format!("Bearer {password}"),
+            },
+            Injection::RemoveHeader {
+                name: "x-api-key".to_string(),
+            },
+        ],
+        ("api.anthropic.com", false) => vec![
             Injection::SetHeader {
                 name: "x-api-key".to_string(),
                 value: password.to_string(),
@@ -1264,21 +1273,41 @@ mod tests {
     }
 
     #[test]
-    fn vault_cred_anthropic_uses_x_api_key() {
-        let rules = vault_credential_to_rules("api.anthropic.com", &cred(Some("sk-ant-123")));
+    fn vault_cred_anthropic_api_key_uses_x_api_key() {
+        let rules = vault_credential_to_rules("api.anthropic.com", &cred(Some("sk-ant-api03-123")));
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].injections.len(), 2);
         assert_eq!(
             rules[0].injections[0],
             Injection::SetHeader {
                 name: "x-api-key".to_string(),
-                value: "sk-ant-123".to_string(),
+                value: "sk-ant-api03-123".to_string(),
             }
         );
         assert_eq!(
             rules[0].injections[1],
             Injection::RemoveHeader {
                 name: "authorization".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn vault_cred_anthropic_oauth_sets_authorization() {
+        let rules = vault_credential_to_rules("api.anthropic.com", &cred(Some("sk-ant-oat-123")));
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].injections.len(), 2);
+        assert_eq!(
+            rules[0].injections[0],
+            Injection::SetHeader {
+                name: "authorization".to_string(),
+                value: "Bearer sk-ant-oat-123".to_string(),
+            }
+        );
+        assert_eq!(
+            rules[0].injections[1],
+            Injection::RemoveHeader {
+                name: "x-api-key".to_string(),
             }
         );
     }

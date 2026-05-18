@@ -20,7 +20,9 @@ export default function HashicorpVaultPage() {
       </Link>
       <div>
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-semibold tracking-tight">HashiCorp Vault</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            HashiCorp Vault
+          </h1>
           <Badge
             variant="secondary"
             className="text-[10px] font-normal px-1.5 py-0"
