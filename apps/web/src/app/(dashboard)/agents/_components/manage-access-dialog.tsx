@@ -104,6 +104,7 @@ export const ManageAccessDialog = ({
     const project: Secret[] = [];
     const org: Secret[] = [];
     for (const s of secretsList) {
+      if (s.source === "vault") continue;
       (s.scope === "organization" ? org : project).push(s);
     }
     return { secrets: project, orgSecrets: org };

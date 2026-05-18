@@ -28,6 +28,10 @@ interface Secret {
   metadata: Record<string, unknown> | null;
   isPlatform: boolean;
   scope?: string | null;
+  source?: "db" | "vault";
+  vaultProvider?: string;
+  vaultPath?: string;
+  vaultField?: string;
   createdAt: Date;
 }
 
@@ -177,6 +181,8 @@ export const SecretsContent = ({
               key={secret.id}
               secret={secret}
               secretActions={secretActions}
+              readOnly={secret.source === "vault"}
+              badge={secret.source === "vault" ? "Vault" : undefined}
             />
           ))}
           {inheritedSecrets.map((secret) => (

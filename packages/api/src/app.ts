@@ -38,6 +38,7 @@ import { countsRoutes } from "./routes/counts";
 import { skillRoutes } from "./routes/skill";
 import { credentialStubRoutes } from "./routes/credential-stubs";
 import { migrateRoutes } from "./routes/migrate";
+import { hashicorpVaultRoutes } from "./routes/hashicorp-vault";
 import { internalRoutes } from "./routes/internal";
 import {
   authSessionRoutes,
@@ -100,6 +101,7 @@ export const createApiApp = (
   app.route("/skill", skillRoutes());
   app.route("/credential-stubs", credentialStubRoutes());
   app.route("/migrate", migrateRoutes());
+  app.route("/hashicorp-vault", hashicorpVaultRoutes());
   app.route("/internal", internalRoutes());
 
   if (options?.cloudRoutes) {

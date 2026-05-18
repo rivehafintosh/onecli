@@ -14,7 +14,12 @@ import {
   AnimatedTabContent,
 } from "@onecli/ui/components/animated-tabs";
 import type { PolicyMode } from "@onecli/api/validations/policy-rule";
-import type { AgentOption, PolicyRuleItem, RuleActions } from "./types";
+import type {
+  AgentOption,
+  EndpointOption,
+  PolicyRuleItem,
+  RuleActions,
+} from "./types";
 import { ApplicationRuleForm } from "./application-rule-form";
 import { CustomEndpointForm } from "./custom-endpoint-form";
 
@@ -28,6 +33,7 @@ interface RuleDialogProps {
   ruleActions?: RuleActions;
   connectedProviders?: Map<string, string[]>;
   policyMode?: PolicyMode;
+  endpointOptions?: EndpointOption[];
 }
 
 export const RuleDialog = ({
@@ -40,6 +46,7 @@ export const RuleDialog = ({
   ruleActions,
   connectedProviders,
   policyMode,
+  endpointOptions = [],
 }: RuleDialogProps) => {
   const isEdit = !!rule;
   const handleClose = () => onOpenChange(false);
@@ -66,6 +73,7 @@ export const RuleDialog = ({
               showAgentField={showAgentField}
               ruleActions={ruleActions}
               policyMode={policyMode}
+              endpointOptions={endpointOptions}
             />
           </div>
         ) : (
@@ -104,6 +112,7 @@ export const RuleDialog = ({
                 showAgentField={showAgentField}
                 ruleActions={ruleActions}
                 policyMode={policyMode}
+                endpointOptions={endpointOptions}
               />
             </AnimatedTabContent>
           </AnimatedTabs>

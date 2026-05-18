@@ -126,42 +126,50 @@ export const containerConfigRoutes = () => {
       // OAuth tokens need CLAUDE_CODE_OAUTH_TOKEN so the SDK does the token
       // exchange. API keys need ANTHROPIC_API_KEY. Defaults to api-key for
       // legacy secrets without metadata.
-      const anthropicSecret =
-        agent.secretMode === "selective"
-          ? await db.secret.findFirst({
-              where: {
-                type: "anthropic",
-                agentSecrets: { some: { agentId: agent.id } },
-              },
-              select: { metadata: true, encryptedValue: true },
-            })
-          : await db.secret.findFirst({
-              where: { projectId, type: "anthropic" },
-              select: { metadata: true, encryptedValue: true },
-            });
+      const [anthropicSecret, openaiSecret, vaultConnection] =
+        await Promise.all([
+          agent.secretMode === "selective"
+            ? db.secret.findFirst({
+                where: {
+                  type: "anthropic",
+                  agentSecrets: { some: { agentId: agent.id } },
+                },
+                select: { metadata: true, encryptedValue: true },
+              })
+            : db.secret.findFirst({
+                where: { projectId: auth.projectId, type: "anthropic" },
+                select: { metadata: true, encryptedValue: true },
+              }),
+          agent.secretMode === "selective"
+            ? db.secret.findFirst({
+                where: {
+                  type: "openai",
+                  agentSecrets: { some: { agentId: agent.id } },
+                },
+                select: { metadata: true, encryptedValue: true },
+              })
+            : db.secret.findFirst({
+                where: { projectId, type: "openai" },
+                select: { metadata: true, encryptedValue: true },
+              }),
+          db.vaultConnection.findFirst({
+            where: { projectId, status: "connected" },
+            select: { id: true },
+          }),
+        ]);
 
       const meta = parseAnthropicMetadata(anthropicSecret?.metadata);
 
-      const authEnv: Record<string, string> =
+      const anthropicAuthEnv: Record<string, string> =
         meta?.authMode === "oauth"
           ? { CLAUDE_CODE_OAUTH_TOKEN: "placeholder" }
           : { ANTHROPIC_API_KEY: "placeholder" };
+      const authEnv: Record<string, string> = {
+        ...anthropicAuthEnv,
+        OPENAI_API_KEY: "placeholder",
+      };
 
       // Detect OpenAI auth mode for Codex container support.
-      const openaiSecret =
-        agent.secretMode === "selective"
-          ? await db.secret.findFirst({
-              where: {
-                type: "openai",
-                agentSecrets: { some: { agentId: agent.id } },
-              },
-              select: { metadata: true },
-            })
-          : await db.secret.findFirst({
-              where: { projectId, type: "openai" },
-              select: { metadata: true },
-            });
-
       const openaiMeta = parseOpenaiMetadata(openaiSecret?.metadata);
 
       const openaiEnv: Record<string, string> = {};
@@ -183,7 +191,7 @@ export const containerConfigRoutes = () => {
       }
 
       const warnings: string[] = [];
-      if (!anthropicSecret) {
+      if (!anthropicSecret && !vaultConnection) {
         warnings.push(
           "No Anthropic credentials configured — the agent will use its own API key if available. Add one at " +
             (c.req.header("origin") ?? "") +
@@ -197,6 +205,19 @@ export const containerConfigRoutes = () => {
         } catch {
           warnings.push(
             "Anthropic credentials exist but cannot be decrypted by the gateway (encryption format mismatch). Re-create the secret to fix this.",
+          );
+        }
+      }
+      if (!openaiSecret && !vaultConnection) {
+        warnings.push(
+          "No OpenAI credentials configured — OpenAI/Codex requests through the gateway will need a OneCLI secret or external vault mapping.",
+        );
+      } else if (openaiSecret) {
+        try {
+          await getCrypto().decrypt(openaiSecret.encryptedValue);
+        } catch {
+          warnings.push(
+            "OpenAI credentials exist but cannot be decrypted by the gateway (encryption format mismatch). Re-create the secret to fix this.",
           );
         }
       }

@@ -121,7 +121,10 @@ export const useVaultPair = (
   fetchStatus: () => Promise<void>,
   provider: string = "bitwarden",
 ) => {
-  const { pairWithPayload, pairing } = useVaultPairRequest(fetchStatus, provider);
+  const { pairWithPayload, pairing } = useVaultPairRequest(
+    fetchStatus,
+    provider,
+  );
 
   const pair = useCallback(
     async (pskHex: string, fingerprintHex: string): Promise<boolean> => {

@@ -20,7 +20,7 @@ use crate::crypto::CryptoService;
 use crate::db;
 
 const PROVIDER: &str = "hashicorp-vault";
-const DEFAULT_MOUNT: &str = "secret";
+const DEFAULT_MOUNT: &str = "kv";
 const DEFAULT_PATH_PREFIX: &str = "onecli";
 const DEFAULT_KV_VERSION: u8 = 2;
 
@@ -90,11 +90,16 @@ impl HashicorpVaultProvider {
         let Some(value) = row.connection_data else {
             return Ok(None);
         };
-        decrypt_connection_data(&self.crypto, &value).await.map(Some)
+        decrypt_connection_data(&self.crypto, &value)
+            .await
+            .map(Some)
     }
 
     async fn validate(&self, data: &HashicorpVaultConnectionData) -> Result<Option<String>> {
-        let url = format!("{}/v1/auth/token/lookup-self", data.address.trim_end_matches('/'));
+        let url = format!(
+            "{}/v1/auth/token/lookup-self",
+            data.address.trim_end_matches('/')
+        );
         let client = client_for(data)?;
         let resp = client
             .get(url)
@@ -106,6 +111,12 @@ impl HashicorpVaultProvider {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
+            if status == reqwest::StatusCode::FORBIDDEN && token_lookup_forbidden_is_usable(&body) {
+                warn!(
+                    "HashiCorp Vault token cannot call lookup-self; accepting token for KV reads"
+                );
+                return Ok(None);
+            }
             return Err(anyhow!("Vault token validation failed: {status} {body}"));
         }
 
@@ -126,7 +137,11 @@ impl HashicorpVaultProvider {
         let headers = headers(data)?;
 
         for lookup in candidate_lookups(data, hostname) {
-            let url = format!("{}/v1/{}", data.address.trim_end_matches('/'), lookup.api_path);
+            let url = format!(
+                "{}/v1/{}",
+                data.address.trim_end_matches('/'),
+                lookup.api_path
+            );
             let resp = client.get(url).headers(headers.clone()).send().await;
             let resp = match resp {
                 Ok(resp) => resp,
@@ -288,7 +303,9 @@ fn client_for(data: &HashicorpVaultConnectionData) -> Result<reqwest::Client> {
             .context("invalid Vault CA certificate PEM")?;
         builder = builder.add_root_certificate(cert);
     }
-    builder.build().context("building HashiCorp Vault HTTP client")
+    builder
+        .build()
+        .context("building HashiCorp Vault HTTP client")
 }
 
 struct SecretLookup {
@@ -348,7 +365,10 @@ fn credential_from_map(
     })
 }
 
-fn string_field(map: &serde_json::Map<String, serde_json::Value>, names: &[&str]) -> Option<String> {
+fn string_field(
+    map: &serde_json::Map<String, serde_json::Value>,
+    names: &[&str],
+) -> Option<String> {
     names.iter().find_map(|name| {
         map.get(*name)
             .and_then(|v| v.as_str())
@@ -356,6 +376,11 @@ fn string_field(map: &serde_json::Map<String, serde_json::Value>, names: &[&str]
             .filter(|s| !s.is_empty())
             .map(str::to_string)
     })
+}
+
+fn token_lookup_forbidden_is_usable(body: &str) -> bool {
+    let body = body.to_ascii_lowercase();
+    body.contains("permission denied") && !body.contains("invalid token")
 }
 
 fn normalize_mappings(mappings: Vec<CredentialMapping>) -> Result<Vec<CredentialMapping>> {
@@ -415,7 +440,8 @@ async fn encrypt_connection_data(
     crypto: &CryptoService,
     cd: &HashicorpVaultConnectionData,
 ) -> Result<serde_json::Value> {
-    let json_str = serde_json::to_string(cd).context("serializing HashiCorp Vault connection data")?;
+    let json_str =
+        serde_json::to_string(cd).context("serializing HashiCorp Vault connection data")?;
     let encrypted = crypto
         .encrypt(&json_str)
         .await
@@ -468,6 +494,20 @@ mod tests {
         map.insert("token".into(), serde_json::Value::String("sk-test".into()));
         let credential = credential_from_map(&map, None, None).expect("credential");
         assert_eq!(credential.password.as_deref(), Some("sk-test"));
+    }
+
+    #[test]
+    fn lookup_self_permission_denied_is_usable() {
+        assert!(token_lookup_forbidden_is_usable(
+            r#"{"errors":["permission denied"]}"#
+        ));
+    }
+
+    #[test]
+    fn lookup_self_invalid_token_is_rejected() {
+        assert!(!token_lookup_forbidden_is_usable(
+            r#"{"errors":["permission denied","invalid token"]}"#
+        ));
     }
 }
 
