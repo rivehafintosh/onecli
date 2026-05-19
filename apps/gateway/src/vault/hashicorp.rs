@@ -327,7 +327,7 @@ fn candidate_lookups(data: &HashicorpVaultConnectionData, hostname: &str) -> Vec
     let mut lookups: Vec<SecretLookup> = data
         .mappings
         .iter()
-        .filter(|mapping| mapping.hostname == host)
+        .filter(|mapping| mapping.hostname.trim().eq_ignore_ascii_case(host))
         .map(|mapping| SecretLookup {
             api_path: api_path(data, &mapping.path),
             field: Some(mapping.field.clone()),
