@@ -38,6 +38,22 @@ export interface HashicorpVaultStatusData {
   has_ca_cert: boolean;
   kv_version: number;
   mappings_count: number;
+  token: {
+    display_name: string | null;
+    policies: string[];
+    token_policies: string[];
+    identity_policies: string[];
+    ttl: number | null;
+    expire_time: string | null;
+    renewable: boolean | null;
+    orphan: boolean | null;
+    path: string | null;
+  } | null;
+  capabilities: Array<{
+    path: string;
+    capabilities: string[];
+  }>;
+  capabilities_error: string | null;
 }
 
 export const useVaultStatus = <T = unknown>(provider: string = "bitwarden") => {

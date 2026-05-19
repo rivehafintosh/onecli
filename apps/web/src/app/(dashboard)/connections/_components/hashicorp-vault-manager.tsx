@@ -10,6 +10,7 @@ import {
 import {
   Database,
   FileKey2,
+  FilePlus2,
   Folder,
   RefreshCw,
   Save,
@@ -194,6 +195,17 @@ export const HashicorpVaultManager = ({
     await browse(pathInput);
   };
 
+  const handleUsePath = () => {
+    const nextPath = pathInput.trim().replace(/^\/+|\/+$/g, "");
+    if (!nextPath) return;
+    setSelectedPath(nextPath);
+    setFields([]);
+    setField("");
+    setWriteField("");
+    setHostname("");
+    setUsernameField("");
+  };
+
   const parentPath = currentPath.split("/").slice(0, -1).join("/");
 
   return (
@@ -224,6 +236,16 @@ export const HashicorpVaultManager = ({
               <RefreshCw
                 className={`size-4 ${loading ? "animate-spin" : ""}`}
               />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              disabled={!pathInput.trim()}
+              onClick={handleUsePath}
+              aria-label="Use Vault path"
+            >
+              <FilePlus2 className="size-4" />
             </Button>
           </form>
 
