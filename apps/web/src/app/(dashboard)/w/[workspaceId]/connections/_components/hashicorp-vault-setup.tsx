@@ -60,6 +60,14 @@ export const HashicorpVaultSetup = () => {
   );
 
   const canConnect = address.trim().length > 0 && token.trim().length > 0;
+  const statusData = status?.status_data;
+  const tokenPolicies = Array.from(
+    new Set([
+      ...(statusData?.token?.policies ?? []),
+      ...(statusData?.token?.token_policies ?? []),
+      ...(statusData?.token?.identity_policies ?? []),
+    ]),
+  ).sort();
 
   const parseMappings = () => {
     const value = mappingsJson.trim();
@@ -136,37 +144,103 @@ export const HashicorpVaultSetup = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <ReadOnlyField
-                label="Address"
-                value={status?.status_data?.address}
-              />
-              <ReadOnlyField label="Mount" value={status?.status_data?.mount} />
+              <ReadOnlyField label="Address" value={statusData?.address} />
+              <ReadOnlyField label="Mount" value={statusData?.mount} />
               <ReadOnlyField
                 label="Path prefix"
-                value={status?.status_data?.path_prefix || "(root)"}
+                value={statusData?.path_prefix || "(root)"}
               />
               <ReadOnlyField
                 label="KV version"
-                value={String(status?.status_data?.kv_version ?? 2)}
+                value={String(statusData?.kv_version ?? 2)}
               />
               <ReadOnlyField
                 label="Mappings"
-                value={String(status?.status_data?.mappings_count ?? 0)}
+                value={String(statusData?.mappings_count ?? 0)}
               />
-              {status?.status_data?.namespace ? (
-                <ReadOnlyField
-                  label="Namespace"
-                  value={status.status_data.namespace}
-                />
+              {statusData?.namespace ? (
+                <ReadOnlyField label="Namespace" value={statusData.namespace} />
               ) : null}
               <ReadOnlyField
                 label="Custom CA"
-                value={
-                  status?.status_data?.has_ca_cert
-                    ? "Configured"
-                    : "System trust"
-                }
+                value={statusData?.has_ca_cert ? "Configured" : "System trust"}
               />
+              <ReadOnlyField
+                label="Token display"
+                value={statusData?.token?.display_name ?? undefined}
+              />
+            </div>
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Token policy</p>
+                {statusData?.token?.renewable != null ? (
+                  <Badge variant="secondary">
+                    {statusData.token.renewable ? "Renewable" : "Fixed"}
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {tokenPolicies.map((policy) => (
+                  <Badge key={policy} variant="outline" className="font-mono">
+                    {policy}
+                  </Badge>
+                ))}
+                {tokenPolicies.length === 0 ? (
+                  <p className="text-muted-foreground text-xs">
+                    No token policies reported.
+                  </p>
+                ) : null}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ReadOnlyField
+                  label="Auth path"
+                  value={statusData?.token?.path ?? undefined}
+                />
+                <ReadOnlyField
+                  label="TTL"
+                  value={
+                    statusData?.token?.ttl != null
+                      ? `${statusData.token.ttl}s`
+                      : undefined
+                  }
+                />
+              </div>
+            </div>
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm font-medium">Effective capabilities</p>
+              <div className="divide-border overflow-hidden rounded-md border">
+                {(statusData?.capabilities ?? []).map((item) => (
+                  <div
+                    key={item.path}
+                    className="grid gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(160px,auto)]"
+                  >
+                    <code className="text-muted-foreground truncate text-xs">
+                      {item.path}
+                    </code>
+                    <div className="flex flex-wrap gap-1">
+                      {item.capabilities.map((capability) => (
+                        <Badge
+                          key={`${item.path}:${capability}`}
+                          variant="secondary"
+                          className="font-mono text-[10px]"
+                        >
+                          {capability}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {(statusData?.capabilities ?? []).length === 0 ? (
+                  <p className="text-muted-foreground px-3 py-4 text-xs">
+                    No capabilities reported for configured mappings.
+                  </p>
+                ) : null}
+              </div>
+              {statusData?.capabilities_error ? (
+                <p className="text-destructive text-xs">
+                  {statusData.capabilities_error}
+                </p>
+              ) : null}
             </div>
             {!isReady ? (
               <div className="bg-destructive/10 text-destructive flex items-start gap-2 rounded-md border border-red-200 p-3 text-sm dark:border-red-900">
