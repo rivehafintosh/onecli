@@ -155,7 +155,15 @@ impl HashicorpVaultProvider {
                 continue;
             }
             if !resp.status().is_success() {
-                warn!(host = %hostname, status = %resp.status(), "hashicorp vault secret lookup failed");
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                warn!(
+                    host = %hostname,
+                    path = %lookup.api_path,
+                    status = %status,
+                    body = %body,
+                    "hashicorp vault secret lookup failed"
+                );
                 continue;
             }
 
