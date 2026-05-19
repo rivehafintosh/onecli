@@ -532,10 +532,12 @@ fn token_status_from_lookup(value: &serde_json::Value) -> TokenStatus {
 fn capability_statuses_from_response(value: &serde_json::Value) -> Vec<CapabilityStatus> {
     let capabilities = value
         .get("capabilities")
-        .or_else(|| value.get("data").and_then(|data| data.get("capabilities")));
+        .or_else(|| value.get("data").and_then(|data| data.get("capabilities")))
+        .or_else(|| value.get("data"));
     match capabilities {
         Some(serde_json::Value::Object(paths)) => paths
             .iter()
+            .filter(|(_, capabilities)| capabilities.is_array())
             .map(|(path, capabilities)| CapabilityStatus {
                 path: path.clone(),
                 capabilities: value_string_array(capabilities),
@@ -732,6 +734,20 @@ mod tests {
         assert!(!token_lookup_forbidden_is_usable(
             r#"{"errors":["permission denied","invalid token"]}"#
         ));
+    }
+
+    #[test]
+    fn capabilities_parse_nested_data_map() {
+        let value = serde_json::json!({
+            "data": {
+                "kv/data/onecli/homeassistant": ["create", "update"],
+                "ttl": 0
+            }
+        });
+        let capabilities = capability_statuses_from_response(&value);
+        assert_eq!(capabilities.len(), 1);
+        assert_eq!(capabilities[0].path, "kv/data/onecli/homeassistant");
+        assert_eq!(capabilities[0].capabilities, vec!["create", "update"]);
     }
 }
 
