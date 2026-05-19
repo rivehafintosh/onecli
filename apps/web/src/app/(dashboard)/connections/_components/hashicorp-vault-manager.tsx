@@ -12,6 +12,7 @@ import {
   FileKey2,
   FilePlus2,
   Folder,
+  Info,
   RefreshCw,
   Save,
   Trash2,
@@ -57,6 +58,8 @@ export const HashicorpVaultManager = ({
   const [mappings, setMappings] = useState<VaultMapping[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
   const [fields, setFields] = useState<string[]>([]);
+  const [browseError, setBrowseError] = useState("");
+  const [metadataError, setMetadataError] = useState("");
   const [hostname, setHostname] = useState("");
   const [field, setField] = useState("");
   const [usernameField, setUsernameField] = useState("");
@@ -76,6 +79,7 @@ export const HashicorpVaultManager = ({
     browseRequestRef.current = requestId;
     const nextPath = path.trim().replace(/^\/+|\/+$/g, "");
     setLoading(true);
+    setBrowseError("");
     try {
       const result = await browseHashicorpVaultPath(nextPath);
       if (browseRequestRef.current !== requestId) return;
@@ -83,9 +87,13 @@ export const HashicorpVaultManager = ({
       setCurrentPath(nextPath);
       if (syncInput) setPathInput(nextPath);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to list Vault path",
-      );
+      const message =
+        error instanceof Error ? error.message : "Failed to list Vault path";
+      setEntries([]);
+      setCurrentPath(nextPath);
+      if (syncInput) setPathInput(nextPath);
+      setBrowseError(message);
+      toast.error(message);
     } finally {
       if (browseRequestRef.current === requestId) setLoading(false);
     }
@@ -93,6 +101,7 @@ export const HashicorpVaultManager = ({
 
   const inspectPath = useCallback(async (path: string) => {
     setLoading(true);
+    setMetadataError("");
     try {
       const metadata = await getHashicorpVaultPathMetadata(path);
       setSelectedPath(metadata.path);
@@ -103,20 +112,27 @@ export const HashicorpVaultManager = ({
       setHostname(firstMapping?.hostname ?? "");
       setUsernameField(firstMapping?.username_field ?? "");
     } catch (error) {
-      toast.error(
+      const message =
         error instanceof Error
           ? error.message
-          : "Failed to read Vault metadata",
-      );
+          : "Failed to read Vault metadata";
+      const nextPath = path.trim().replace(/^\/+|\/+$/g, "");
+      setSelectedPath(nextPath);
+      setFields([]);
+      setField("");
+      setWriteField("");
+      setHostname("");
+      setUsernameField("");
+      setMetadataError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    browse("", false).catch(() => {});
     refreshMappings().catch(() => {});
-  }, [browse, refreshMappings]);
+  }, [refreshMappings]);
 
   const handleEntryClick = async (entry: VaultPathEntry) => {
     if (entry.folder) {
@@ -202,6 +218,7 @@ export const HashicorpVaultManager = ({
     setFields([]);
     setField("");
     setWriteField("");
+    setMetadataError("");
     setHostname("");
     setUsernameField("");
   };
@@ -285,6 +302,12 @@ export const HashicorpVaultManager = ({
                 Loading...
               </p>
             )}
+            {browseError && !loading && (
+              <div className="text-muted-foreground flex gap-2 border-t px-3 py-3 text-xs">
+                <Info className="mt-0.5 size-3.5 shrink-0" />
+                <span>{browseError}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -317,7 +340,9 @@ export const HashicorpVaultManager = ({
               ))}
               {selectedPath && fields.length === 0 && (
                 <p className="text-muted-foreground text-xs">
-                  No fields found.
+                  {metadataError
+                    ? "Existing fields could not be listed. You can still create or update a field if the token allows writes."
+                    : "No fields found."}
                 </p>
               )}
             </div>
