@@ -530,7 +530,10 @@ fn token_status_from_lookup(value: &serde_json::Value) -> TokenStatus {
 }
 
 fn capability_statuses_from_response(value: &serde_json::Value) -> Vec<CapabilityStatus> {
-    match value.get("capabilities") {
+    let capabilities = value
+        .get("capabilities")
+        .or_else(|| value.get("data").and_then(|data| data.get("capabilities")));
+    match capabilities {
         Some(serde_json::Value::Object(paths)) => paths
             .iter()
             .map(|(path, capabilities)| CapabilityStatus {
