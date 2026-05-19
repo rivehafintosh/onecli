@@ -334,6 +334,19 @@ fn candidate_lookups(data: &HashicorpVaultConnectionData, hostname: &str) -> Vec
             username_field: mapping.username_field.clone(),
         })
         .collect();
+    if lookups.is_empty() && !data.mappings.is_empty() {
+        let configured_hosts = data
+            .mappings
+            .iter()
+            .map(|mapping| mapping.hostname.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        warn!(
+            host = %host,
+            configured_hosts = %configured_hosts,
+            "hashicorp vault mapping not found for host"
+        );
+    }
 
     let fallback_path = if data.path_prefix.is_empty() {
         host.to_string()
