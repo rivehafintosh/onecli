@@ -5,6 +5,7 @@
 //! stored encrypted with the project connection. This provider intentionally
 //! does not read ambient `VAULT_*` environment variables.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -69,6 +70,25 @@ struct VaultResponse {
     data: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+struct TokenStatus {
+    display_name: Option<String>,
+    policies: Vec<String>,
+    token_policies: Vec<String>,
+    identity_policies: Vec<String>,
+    ttl: Option<i64>,
+    expire_time: Option<String>,
+    renewable: Option<bool>,
+    orphan: Option<bool>,
+    path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CapabilityStatus {
+    path: String,
+    capabilities: Vec<String>,
+}
+
 pub(crate) struct HashicorpVaultProvider {
     pool: PgPool,
     crypto: Arc<CryptoService>,
@@ -95,7 +115,7 @@ impl HashicorpVaultProvider {
             .map(Some)
     }
 
-    async fn validate(&self, data: &HashicorpVaultConnectionData) -> Result<Option<String>> {
+    async fn validate(&self, data: &HashicorpVaultConnectionData) -> Result<TokenStatus> {
         let url = format!(
             "{}/v1/auth/token/lookup-self",
             data.address.trim_end_matches('/')
@@ -115,17 +135,45 @@ impl HashicorpVaultProvider {
                 warn!(
                     "HashiCorp Vault token cannot call lookup-self; accepting token for KV reads"
                 );
-                return Ok(None);
+                return Ok(TokenStatus::default());
             }
             return Err(anyhow!("Vault token validation failed: {status} {body}"));
         }
 
         let value: serde_json::Value = resp.json().await.context("parsing Vault token lookup")?;
-        Ok(value
-            .get("data")
-            .and_then(|d| d.get("display_name"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string))
+        Ok(token_status_from_lookup(&value))
+    }
+
+    async fn capabilities(
+        &self,
+        data: &HashicorpVaultConnectionData,
+    ) -> Result<Vec<CapabilityStatus>> {
+        let paths = capability_paths(data);
+        if paths.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let url = format!(
+            "{}/v1/sys/capabilities-self",
+            data.address.trim_end_matches('/')
+        );
+        let client = client_for(data)?;
+        let resp = client
+            .post(url)
+            .headers(headers(data)?)
+            .json(&serde_json::json!({ "paths": paths }))
+            .send()
+            .await
+            .context("calling Vault capabilities-self")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("Vault capabilities lookup failed: {status} {body}"));
+        }
+
+        let value: serde_json::Value = resp.json().await.context("parsing Vault capabilities")?;
+        Ok(capability_statuses_from_response(&value))
     }
 
     async fn read_secret(
@@ -219,7 +267,7 @@ impl VaultProvider for HashicorpVaultProvider {
             return Err(anyhow!("kv_version must be 1 or 2"));
         }
 
-        let display_name = self.validate(&data).await?;
+        let token_status = self.validate(&data).await?;
         let encrypted = encrypt_connection_data(&self.crypto, &data).await?;
         db::upsert_vault_connection(
             &self.pool,
@@ -230,7 +278,9 @@ impl VaultProvider for HashicorpVaultProvider {
         )
         .await?;
 
-        Ok(PairResult { display_name })
+        Ok(PairResult {
+            display_name: token_status.display_name,
+        })
     }
 
     async fn request_credential(
@@ -269,9 +319,20 @@ impl VaultProvider for HashicorpVaultProvider {
         };
 
         let validation = self.validate(&data).await;
+        let (capabilities, capabilities_error) = if validation.is_ok() {
+            match self.capabilities(&data).await {
+                Ok(capabilities) => (capabilities, None),
+                Err(error) => (vec![], Some(error.to_string())),
+            }
+        } else {
+            (vec![], None)
+        };
+        let token = validation.as_ref().ok().cloned();
         ProviderStatus {
             connected: validation.is_ok(),
-            name: validation.ok().flatten(),
+            name: token
+                .as_ref()
+                .and_then(|status| status.display_name.clone()),
             status_data: Some(serde_json::json!({
                 "address": data.address,
                 "mount": data.mount,
@@ -280,6 +341,9 @@ impl VaultProvider for HashicorpVaultProvider {
                 "has_ca_cert": data.ca_cert_pem.is_some(),
                 "kv_version": data.kv_version,
                 "mappings_count": data.mappings.len(),
+                "token": token,
+                "capabilities": capabilities,
+                "capabilities_error": capabilities_error,
             })),
         }
     }
@@ -322,6 +386,12 @@ struct SecretLookup {
     username_field: Option<String>,
 }
 
+#[derive(Clone)]
+struct VaultTarget {
+    mount: String,
+    path: String,
+}
+
 fn candidate_lookups(data: &HashicorpVaultConnectionData, hostname: &str) -> Vec<SecretLookup> {
     let host = hostname.trim().trim_matches('/');
     let mut lookups: Vec<SecretLookup> = data
@@ -329,7 +399,7 @@ fn candidate_lookups(data: &HashicorpVaultConnectionData, hostname: &str) -> Vec
         .iter()
         .filter(|mapping| mapping.hostname.trim().eq_ignore_ascii_case(host))
         .map(|mapping| SecretLookup {
-            api_path: api_path(data, &mapping.path),
+            api_path: api_path(data, vault_target(data, &mapping.path)),
             field: Some(mapping.field.clone()),
             username_field: mapping.username_field.clone(),
         })
@@ -354,18 +424,148 @@ fn candidate_lookups(data: &HashicorpVaultConnectionData, hostname: &str) -> Vec
         format!("{}/{}", data.path_prefix, host)
     };
     lookups.push(SecretLookup {
-        api_path: api_path(data, &fallback_path),
+        api_path: api_path(data, vault_target(data, &fallback_path)),
         field: None,
         username_field: None,
     });
     lookups
 }
 
-fn api_path(data: &HashicorpVaultConnectionData, logical_path: &str) -> String {
+fn vault_target(data: &HashicorpVaultConnectionData, logical_path: &str) -> VaultTarget {
     let logical_path = logical_path.trim().trim_matches('/');
+    if let Some((mount, path)) = logical_path.split_once(':') {
+        let mount = mount.trim().trim_matches('/');
+        let path = path.trim().trim_matches('/');
+        if !mount.is_empty() && !mount.contains('/') && !path.is_empty() {
+            return VaultTarget {
+                mount: mount.to_string(),
+                path: path.to_string(),
+            };
+        }
+    }
+
+    let mut segments = logical_path
+        .split('/')
+        .filter(|segment| !segment.is_empty());
+    let first = segments.next().unwrap_or_default();
+    if first == data.mount || first == "kv" || first == "kv-admin" {
+        let rest = segments.collect::<Vec<_>>().join("/");
+        if !rest.is_empty() {
+            return VaultTarget {
+                mount: first.to_string(),
+                path: rest,
+            };
+        }
+    }
+    VaultTarget {
+        mount: data.mount.clone(),
+        path: logical_path.to_string(),
+    }
+}
+
+fn api_path(data: &HashicorpVaultConnectionData, target: VaultTarget) -> String {
     match data.kv_version {
-        2 => format!("{}/data/{}", data.mount, logical_path),
-        _ => format!("{}/{}", data.mount, logical_path),
+        2 => format!("{}/data/{}", target.mount, target.path),
+        _ => format!("{}/{}", target.mount, target.path),
+    }
+}
+
+fn metadata_api_path(data: &HashicorpVaultConnectionData, target: VaultTarget) -> String {
+    match data.kv_version {
+        2 => format!("{}/metadata/{}", target.mount, target.path),
+        _ => format!("{}/{}", target.mount, target.path),
+    }
+}
+
+fn capability_paths(data: &HashicorpVaultConnectionData) -> Vec<String> {
+    let mut paths = BTreeSet::new();
+    let prefix = data.path_prefix.trim().trim_matches('/');
+    if !prefix.is_empty() {
+        let target = VaultTarget {
+            mount: data.mount.clone(),
+            path: prefix.to_string(),
+        };
+        paths.insert(
+            api_path(data, target.clone())
+                .trim_end_matches('/')
+                .to_string(),
+        );
+        paths.insert(
+            metadata_api_path(data, target)
+                .trim_end_matches('/')
+                .to_string(),
+        );
+    }
+
+    for mapping in &data.mappings {
+        let target = vault_target(data, &mapping.path);
+        paths.insert(
+            api_path(data, target.clone())
+                .trim_end_matches('/')
+                .to_string(),
+        );
+        paths.insert(
+            metadata_api_path(data, target)
+                .trim_end_matches('/')
+                .to_string(),
+        );
+    }
+
+    paths.into_iter().collect()
+}
+
+fn token_status_from_lookup(value: &serde_json::Value) -> TokenStatus {
+    let data = value.get("data").unwrap_or(&serde_json::Value::Null);
+    TokenStatus {
+        display_name: string_value(data, "display_name"),
+        policies: string_array(data, "policies"),
+        token_policies: string_array(data, "token_policies"),
+        identity_policies: string_array(data, "identity_policies"),
+        ttl: data.get("ttl").and_then(|v| v.as_i64()),
+        expire_time: string_value(data, "expire_time"),
+        renewable: data.get("renewable").and_then(|v| v.as_bool()),
+        orphan: data.get("orphan").and_then(|v| v.as_bool()),
+        path: string_value(data, "path"),
+    }
+}
+
+fn capability_statuses_from_response(value: &serde_json::Value) -> Vec<CapabilityStatus> {
+    match value.get("capabilities") {
+        Some(serde_json::Value::Object(paths)) => paths
+            .iter()
+            .map(|(path, capabilities)| CapabilityStatus {
+                path: path.clone(),
+                capabilities: value_string_array(capabilities),
+            })
+            .collect(),
+        Some(capabilities) => vec![CapabilityStatus {
+            path: "*".to_string(),
+            capabilities: value_string_array(capabilities),
+        }],
+        None => vec![],
+    }
+}
+
+fn string_value(data: &serde_json::Value, key: &str) -> Option<String> {
+    data.get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+}
+
+fn string_array(data: &serde_json::Value, key: &str) -> Vec<String> {
+    data.get(key).map(value_string_array).unwrap_or_default()
+}
+
+fn value_string_array(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_str())
+            .map(str::to_string)
+            .collect(),
+        _ => vec![],
     }
 }
 
@@ -557,5 +757,48 @@ mod mapping_tests {
         assert_eq!(lookups[0].api_path, "secret/data/agents/anthropic");
         assert_eq!(lookups[0].field.as_deref(), Some("claude_key"));
         assert_eq!(lookups[1].api_path, "secret/data/onecli/api.anthropic.com");
+    }
+
+    #[test]
+    fn mapping_can_target_explicit_kv_mount() {
+        let data = HashicorpVaultConnectionData {
+            address: "https://vault.example.com".into(),
+            token: "token".into(),
+            mount: "kv-admin".into(),
+            path_prefix: "".into(),
+            namespace: None,
+            ca_cert_pem: None,
+            kv_version: 2,
+            mappings: vec![CredentialMapping {
+                hostname: "hass.example.com".into(),
+                path: "kv/onecli/homeassistant".into(),
+                field: "token".into(),
+                username_field: None,
+            }],
+        };
+        let lookups = candidate_lookups(&data, "hass.example.com");
+        assert_eq!(lookups[0].api_path, "kv/data/onecli/homeassistant");
+        assert_eq!(lookups[1].api_path, "kv-admin/data/hass.example.com");
+    }
+
+    #[test]
+    fn mapping_can_target_arbitrary_mount_with_colon() {
+        let data = HashicorpVaultConnectionData {
+            address: "https://vault.example.com".into(),
+            token: "token".into(),
+            mount: "kv-admin".into(),
+            path_prefix: "".into(),
+            namespace: None,
+            ca_cert_pem: None,
+            kv_version: 2,
+            mappings: vec![CredentialMapping {
+                hostname: "db.example.com".into(),
+                path: "team-secrets:prod/database".into(),
+                field: "password".into(),
+                username_field: None,
+            }],
+        };
+        let lookups = candidate_lookups(&data, "db.example.com");
+        assert_eq!(lookups[0].api_path, "team-secrets/data/prod/database");
     }
 }
