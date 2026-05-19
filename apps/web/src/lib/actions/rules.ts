@@ -27,9 +27,11 @@ import {
 } from "@onecli/api/apps/app-permissions";
 import type { RuleCondition } from "@onecli/api/validations/policy-rule";
 
+const toPlainObject = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+
 export const getRules = async () => {
   const { projectId } = await resolveProjectContext();
-  return listPolicyRules({ projectId });
+  return toPlainObject(await listPolicyRules({ projectId }));
 };
 
 export const createRule = async (input: CreatePolicyRuleInput) => {
@@ -92,7 +94,7 @@ export const getAppPermissionStates = async (
   const rules = await listAppPermissionRules({ projectId }, provider);
 
   const states: Record<string, AppPermissionState> = {};
-  for (const rule of rules) {
+  for (const rule of toPlainObject(rules)) {
     const meta = rule.metadata as { toolId?: string } | null;
     if (meta?.toolId) {
       states[meta.toolId] = {
