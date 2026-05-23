@@ -24,6 +24,7 @@ pub struct VaultCredential {
     #[allow(dead_code)]
     pub username: Option<String>,
     pub password: Option<String>,
+    pub path_pattern: Option<String>,
 }
 
 /// Result of a successful pairing operation.
@@ -114,18 +115,18 @@ impl VaultService {
         Self { providers, pool }
     }
 
-    /// Try each provider in order until one returns a credential.
-    pub async fn request_credential(
+    /// Try each provider in order until one returns credentials.
+    pub async fn request_credentials(
         &self,
         workspace_id: &str,
         hostname: &str,
-    ) -> Option<VaultCredential> {
+    ) -> Vec<VaultCredential> {
         for provider in &self.providers {
             if let Some(cred) = provider.request_credential(workspace_id, hostname).await {
                 return Some(cred);
             }
         }
-        None
+        vec![]
     }
 
     /// Pair with a specific provider. The provider owns DB persistence.
