@@ -594,17 +594,16 @@ async fn handle_connect(
     let mut vault_injection_rules = vec![];
     if !intercept {
         if let Some(ref aid) = project_id {
-            if let Some(cred) = state.vault_service.request_credential(aid, &hostname).await {
-                let vault_rules = inject::vault_credential_to_rules(&hostname, &cred);
-                if !vault_rules.is_empty() {
-                    intercept = true;
-                    vault_injection_rules = vault_rules;
-                    info!(
-                        host = %hostname,
-                        project_id = %aid,
-                        "using vault credential"
-                    );
-                }
+            let creds = state.vault_service.request_credentials(aid, &hostname).await;
+            let vault_rules = inject::vault_credentials_to_rules(&hostname, &creds);
+            if !vault_rules.is_empty() {
+                intercept = true;
+                vault_injection_rules = vault_rules;
+                info!(
+                    host = %hostname,
+                    project_id = %aid,
+                    "using vault credential"
+                );
             }
         }
     }
@@ -781,12 +780,11 @@ async fn handle_http_proxy(
     // Vault fallback
     if resolved.injection_rules.is_empty() {
         if let Some(ref aid) = resolved.project_id {
-            if let Some(cred) = state.vault_service.request_credential(aid, &hostname).await {
-                let vault_rules = inject::vault_credential_to_rules(&hostname, &cred);
-                if !vault_rules.is_empty() {
-                    resolved.injection_rules = vault_rules;
-                    info!(host = %hostname, project_id = %aid, "http_proxy: using vault credential");
-                }
+            let creds = state.vault_service.request_credentials(aid, &hostname).await;
+            let vault_rules = inject::vault_credentials_to_rules(&hostname, &creds);
+            if !vault_rules.is_empty() {
+                resolved.injection_rules = vault_rules;
+                info!(host = %hostname, project_id = %aid, "http_proxy: using vault credential");
             }
         }
     }

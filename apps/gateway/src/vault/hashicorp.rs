@@ -44,6 +44,10 @@ struct CredentialMapping {
     path: String,
     field: String,
     #[serde(default)]
+    path_pattern: Option<String>,
+    #[serde(default)]
+    path_pattern_field: Option<String>,
+    #[serde(default)]
     username_field: Option<String>,
 }
 
@@ -176,13 +180,14 @@ impl HashicorpVaultProvider {
         Ok(capability_statuses_from_response(&value))
     }
 
-    async fn read_secret(
+    async fn read_secrets(
         &self,
         data: &HashicorpVaultConnectionData,
         hostname: &str,
-    ) -> Result<Option<VaultCredential>> {
+    ) -> Result<Vec<VaultCredential>> {
         let client = client_for(data)?;
         let headers = headers(data)?;
+        let mut credentials = Vec::new();
 
         for lookup in candidate_lookups(data, hostname) {
             let url = format!(
@@ -228,16 +233,22 @@ impl HashicorpVaultProvider {
                 _ => body.data,
             };
             if let Some(secret) = secret.and_then(|v| v.as_object().cloned()) {
-                if let Some(credential) = credential_from_map(
+                if let Some(mut credential) = credential_from_map(
                     &secret,
                     lookup.field.as_deref(),
                     lookup.username_field.as_deref(),
                 ) {
-                    return Ok(Some(credential));
+                    credential.path_pattern = lookup.path_pattern.clone().or_else(|| {
+                        lookup
+                            .path_pattern_field
+                            .as_deref()
+                            .and_then(|name| string_field(&secret, &[name]))
+                    });
+                    credentials.push(credential);
                 }
             }
         }
-        Ok(None)
+        Ok(credentials)
     }
 }
 
@@ -283,25 +294,21 @@ impl VaultProvider for HashicorpVaultProvider {
         })
     }
 
-    async fn request_credential(
-        &self,
-        project_id: &str,
-        hostname: &str,
-    ) -> Option<VaultCredential> {
+    async fn request_credentials(&self, project_id: &str, hostname: &str) -> Vec<VaultCredential> {
         let data = match self.load_connection(project_id).await {
             Ok(Some(data)) => data,
-            Ok(None) => return None,
+            Ok(None) => return vec![],
             Err(e) => {
                 warn!(error = %e, "failed to load HashiCorp Vault connection");
-                return None;
+                return vec![];
             }
         };
 
-        match self.read_secret(&data, hostname).await {
-            Ok(credential) => credential,
+        match self.read_secrets(&data, hostname).await {
+            Ok(credentials) => credentials,
             Err(e) => {
                 warn!(host = %hostname, error = %e, "HashiCorp Vault credential lookup failed");
-                None
+                vec![]
             }
         }
     }
@@ -383,6 +390,8 @@ fn client_for(data: &HashicorpVaultConnectionData) -> Result<reqwest::Client> {
 struct SecretLookup {
     api_path: String,
     field: Option<String>,
+    path_pattern: Option<String>,
+    path_pattern_field: Option<String>,
     username_field: Option<String>,
 }
 
@@ -401,6 +410,8 @@ fn candidate_lookups(data: &HashicorpVaultConnectionData, hostname: &str) -> Vec
         .map(|mapping| SecretLookup {
             api_path: api_path(data, vault_target(data, &mapping.path)),
             field: Some(mapping.field.clone()),
+            path_pattern: mapping.path_pattern.clone(),
+            path_pattern_field: mapping.path_pattern_field.clone(),
             username_field: mapping.username_field.clone(),
         })
         .collect();
@@ -426,6 +437,8 @@ fn candidate_lookups(data: &HashicorpVaultConnectionData, hostname: &str) -> Vec
     lookups.push(SecretLookup {
         api_path: api_path(data, vault_target(data, &fallback_path)),
         field: None,
+        path_pattern: None,
+        path_pattern_field: None,
         username_field: None,
     });
     lookups
@@ -588,6 +601,7 @@ fn credential_from_map(
     Some(VaultCredential {
         username,
         password: Some(password),
+        path_pattern: None,
     })
 }
 
@@ -622,6 +636,10 @@ fn normalize_mappings(mappings: Vec<CredentialMapping>) -> Result<Vec<Credential
                 hostname: require_non_empty(mapping.hostname, "mapping hostname")?,
                 path: normalize_segment(&mapping.path, "mapping path")?,
                 field: require_non_empty(mapping.field, "mapping field")?,
+                path_pattern: mapping.path_pattern.and_then(|s| non_empty_trimmed(&s)),
+                path_pattern_field: mapping
+                    .path_pattern_field
+                    .and_then(|s| non_empty_trimmed(&s)),
                 username_field: mapping.username_field.and_then(|s| non_empty_trimmed(&s)),
             })
         })
