@@ -319,9 +319,19 @@ pub(crate) fn vault_credential_to_rules(
     };
 
     vec![InjectionRule {
-        path_pattern: "*".to_string(),
+        path_pattern: cred.path_pattern.clone().unwrap_or_else(|| "*".to_string()),
         injections,
     }]
+}
+
+pub(crate) fn vault_credentials_to_rules(
+    hostname: &str,
+    credentials: &[VaultCredential],
+) -> Vec<InjectionRule> {
+    credentials
+        .iter()
+        .flat_map(|cred| vault_credential_to_rules(hostname, cred))
+        .collect()
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -786,6 +796,7 @@ mod tests {
         VaultCredential {
             username: None,
             password: password.map(|s| s.to_string()),
+            path_pattern: None,
         }
     }
 
