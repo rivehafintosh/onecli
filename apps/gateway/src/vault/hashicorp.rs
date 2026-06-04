@@ -787,6 +787,8 @@ mod mapping_tests {
                 hostname: "api.anthropic.com".into(),
                 path: "agents/anthropic".into(),
                 field: "claude_key".into(),
+                path_pattern: None,
+                path_pattern_field: None,
                 username_field: None,
             }],
         };
@@ -810,6 +812,8 @@ mod mapping_tests {
                 hostname: "hass.example.com".into(),
                 path: "kv/onecli/homeassistant".into(),
                 field: "token".into(),
+                path_pattern: None,
+                path_pattern_field: None,
                 username_field: None,
             }],
         };
@@ -832,6 +836,8 @@ mod mapping_tests {
                 hostname: "db.example.com".into(),
                 path: "team-secrets:prod/database".into(),
                 field: "password".into(),
+                path_pattern: None,
+                path_pattern_field: None,
                 username_field: None,
             }],
         };

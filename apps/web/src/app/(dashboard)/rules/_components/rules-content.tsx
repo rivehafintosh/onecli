@@ -92,8 +92,8 @@ export const RulesContent = ({
         hostPattern: secret.hostPattern,
         pathPattern: secret.pathPattern,
         source: secret.source,
-        vaultPath: "vaultPath" in secret ? secret.vaultPath : undefined,
-        vaultField: "vaultField" in secret ? secret.vaultField : undefined,
+        vaultPath: secret.vaultPath,
+        vaultField: secret.vaultField,
       });
     }
     return options;
