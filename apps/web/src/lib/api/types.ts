@@ -95,6 +95,10 @@ export interface Secret {
   injectionConfig: unknown;
   metadata: Record<string, unknown> | null;
   scope: string | null;
+  source?: "db" | "vault";
+  vaultProvider?: string;
+  vaultPath?: string;
+  vaultField?: string;
   createdAt: string;
   /** Latest injected upstream call failed with a status that indicts the key
    * itself (401/403 auth, 402 billing, 429 limits). Cleared once a newer call

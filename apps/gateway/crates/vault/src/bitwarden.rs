@@ -492,7 +492,9 @@ impl VaultProvider for BitwardenVaultProvider {
                     .and_then(|cd| cd.fingerprint.as_deref())
                     .and_then(parse_fingerprint);
 
-                let fp = fingerprint?;
+                let Some(fp) = fingerprint else {
+                    return vec![];
+                };
 
                 match self.create_and_connect_client(workspace_id, &session).await {
                     Ok(client) => match client.load_cached_connection(fp).await {
@@ -510,7 +512,7 @@ impl VaultProvider for BitwardenVaultProvider {
                                 *eu = Some(Instant::now() + ERROR_COOLDOWN);
                             }
                             drop(client); // dropping the handle disconnects
-                            return None;
+                            return vec![];
                         }
                     },
                     Err(e) => {
@@ -522,18 +524,20 @@ impl VaultProvider for BitwardenVaultProvider {
                         if let Ok(mut eu) = session.error_until.lock() {
                             *eu = Some(Instant::now() + ERROR_COOLDOWN);
                         }
-                        return None;
+                        return vec![];
                     }
                 }
             }
         }
 
         if !session.is_ready.load(Ordering::Relaxed) {
-            return None;
+            return vec![];
         }
 
         let client_guard = session.client.lock().await;
-        let client = client_guard.as_ref()?;
+        let Some(client) = client_guard.as_ref() else {
+            return vec![];
+        };
 
         let query = CredentialQuery::Domain(hostname.to_string());
         let result = tokio::time::timeout(REQUEST_TIMEOUT, client.request_credential(&query)).await;
