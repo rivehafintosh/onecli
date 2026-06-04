@@ -1,6 +1,6 @@
 "use server";
 
-import { resolveUser } from "@/lib/actions/resolve-user";
+import { resolveProjectContext } from "@/lib/actions/resolve-user";
 import {
   listHashicorpVaultMappings,
   listHashicorpVaultPath,
@@ -17,17 +17,17 @@ import {
 } from "@onecli/api/services/audit-service";
 
 export const getHashicorpVaultMappings = async () => {
-  const { projectId } = await resolveUser();
+  const { projectId } = await resolveProjectContext();
   return listHashicorpVaultMappings(projectId);
 };
 
 export const browseHashicorpVaultPath = async (path: string) => {
-  const { projectId } = await resolveUser();
+  const { projectId } = await resolveProjectContext();
   return listHashicorpVaultPath(projectId, path);
 };
 
 export const getHashicorpVaultPathMetadata = async (path: string) => {
-  const { projectId } = await resolveUser();
+  const { projectId } = await resolveProjectContext();
   return getHashicorpVaultSecretMetadata(projectId, path);
 };
 
@@ -35,7 +35,7 @@ export const writeHashicorpVaultFields = async (
   path: string,
   fields: Record<string, string>,
 ) => {
-  const { userId, userEmail, projectId } = await resolveUser();
+  const { userId, userEmail, projectId } = await resolveProjectContext();
   return withAudit(
     () => writeHashicorpVaultSecretFields(projectId, path, fields),
     () => ({
@@ -56,7 +56,7 @@ export const writeHashicorpVaultFields = async (
 export const saveHashicorpVaultMapping = async (
   input: UpsertVaultMappingInput,
 ) => {
-  const { userId, userEmail, projectId } = await resolveUser();
+  const { userId, userEmail, projectId } = await resolveProjectContext();
   return withAudit(
     () => upsertHashicorpVaultMapping(projectId, input),
     () => ({
@@ -78,7 +78,7 @@ export const saveHashicorpVaultMapping = async (
 export const removeHashicorpVaultMapping = async (
   input: UpsertVaultMappingInput,
 ) => {
-  const { userId, userEmail, projectId } = await resolveUser();
+  const { userId, userEmail, projectId } = await resolveProjectContext();
   return withAudit(
     () => deleteHashicorpVaultMapping(projectId, input),
     () => ({

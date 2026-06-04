@@ -594,7 +594,10 @@ async fn handle_connect(
     let mut vault_injection_rules = vec![];
     if !intercept {
         if let Some(ref aid) = project_id {
-            let creds = state.vault_service.request_credentials(aid, &hostname).await;
+            let creds = state
+                .vault_service
+                .request_credentials(aid, &hostname)
+                .await;
             let vault_rules = inject::vault_credentials_to_rules(&hostname, &creds);
             if !vault_rules.is_empty() {
                 intercept = true;
@@ -780,7 +783,10 @@ async fn handle_http_proxy(
     // Vault fallback
     if resolved.injection_rules.is_empty() {
         if let Some(ref aid) = resolved.project_id {
-            let creds = state.vault_service.request_credentials(aid, &hostname).await;
+            let creds = state
+                .vault_service
+                .request_credentials(aid, &hostname)
+                .await;
             let vault_rules = inject::vault_credentials_to_rules(&hostname, &creds);
             if !vault_rules.is_empty() {
                 resolved.injection_rules = vault_rules;
