@@ -50,6 +50,9 @@ pub(crate) enum HostPattern {
     /// Match any hostname ending with the suffix, strictly longer than the suffix
     /// (e.g., `"-aiplatform.googleapis.com"` matches `"us-central1-aiplatform.googleapis.com"`).
     Suffix(&'static str),
+    /// Match any hostname. Use only with `credential_host_field` so credentials
+    /// are still gated to the exact host stored on the connection.
+    Any,
 }
 
 /// A host pattern and its injection strategy for an app provider.
@@ -76,12 +79,20 @@ impl HostPattern {
         match self {
             Self::Exact(host) => *host == hostname,
             Self::Suffix(suffix) => hostname.ends_with(suffix) && hostname.len() > suffix.len(),
+            Self::Any => false,
         }
     }
 }
 
 fn host_rule_matches(rule: &HostRule, hostname: &str) -> bool {
     rule.pattern.matches(hostname)
+}
+
+fn dynamic_host_rule_matches(rule: &HostRule, hostname: &str) -> bool {
+    match rule.pattern {
+        HostPattern::Any => !hostname.is_empty(),
+        _ => host_rule_matches(rule, hostname),
+    }
 }
 
 /// Body format for token refresh requests.
@@ -1070,13 +1081,22 @@ static APP_PROVIDERS: &[AppProvider] = &[
     AppProvider {
         provider: "gitlab",
         display_name: "GitLab",
-        host_rules: &[HostRule {
-            pattern: HostPattern::Exact("gitlab.com"),
-            path_prefix: None,
-            strategy: AuthStrategy::Bearer,
-            intercept: false,
-            credential_host_field: None,
-        }],
+        host_rules: &[
+            HostRule {
+                pattern: HostPattern::Exact("gitlab.com"),
+                path_prefix: None,
+                strategy: AuthStrategy::Bearer,
+                intercept: false,
+                credential_host_field: Some("instance_host"),
+            },
+            HostRule {
+                pattern: HostPattern::Any,
+                path_prefix: Some("/api/v4/"),
+                strategy: AuthStrategy::Bearer,
+                intercept: false,
+                credential_host_field: Some("instance_host"),
+            },
+        ],
         refresh: Some(&GITLAB_REFRESH),
         metadata_headers: &[],
         credential_headers: &[],
@@ -1206,11 +1226,29 @@ pub(crate) fn host_has_path_scoped_providers(hostname: &str) -> bool {
 /// Given a hostname, return all provider names that have at least one host rule
 /// matching it. Multiple providers can share the same host with different path
 /// prefixes (e.g., Gmail on `/gmail/` and Calendar on `/calendar/`).
+#[cfg(test)]
 pub(crate) fn providers_for_host(hostname: &str) -> Vec<&'static str> {
     let mut providers = Vec::new();
     for provider in all_providers() {
         for rule in provider.host_rules {
             if host_rule_matches(rule, hostname) {
+                providers.push(provider.provider);
+                break;
+            }
+        }
+    }
+    providers
+}
+
+/// Providers that may serve a concrete saved connection for `hostname`.
+///
+/// This includes dynamic host-gated providers such as self-hosted GitLab. Do
+/// not use this for general provider discovery or user-facing host hints.
+pub(crate) fn providers_for_connection_host(hostname: &str) -> Vec<&'static str> {
+    let mut providers = Vec::new();
+    for provider in all_providers() {
+        for rule in provider.host_rules {
+            if dynamic_host_rule_matches(rule, hostname) {
                 providers.push(provider.provider);
                 break;
             }
@@ -1244,7 +1282,7 @@ pub(crate) fn build_app_injections(provider: &str, hostname: &str, token: &str) 
     let rule = app
         .host_rules
         .iter()
-        .find(|r| host_rule_matches(r, hostname));
+        .find(|r| dynamic_host_rule_matches(r, hostname));
     let Some(rule) = rule else { return vec![] };
 
     match rule.strategy {
@@ -1279,7 +1317,7 @@ pub(crate) fn build_app_injection_rules(
 
     app.host_rules
         .iter()
-        .filter(|r| host_rule_matches(r, hostname))
+        .filter(|r| dynamic_host_rule_matches(r, hostname))
         .map(|rule| {
             let pattern = rule
                 .path_prefix
@@ -1311,7 +1349,7 @@ pub(crate) fn provider_matches_host_and_path(provider: &str, hostname: &str, pat
         .find(|p| p.provider == provider)
         .is_some_and(|app| {
             app.host_rules.iter().any(|r| {
-                host_rule_matches(r, hostname)
+                dynamic_host_rule_matches(r, hostname)
                     && r.path_prefix.is_none_or(|pfx| path.starts_with(pfx))
             })
         })
@@ -1397,7 +1435,7 @@ pub(crate) fn credential_host_field(provider: &str, hostname: &str) -> Option<&'
         .and_then(|p| {
             p.host_rules
                 .iter()
-                .find(|r| host_rule_matches(r, hostname))
+                .find(|r| dynamic_host_rule_matches(r, hostname))
                 .and_then(|r| r.credential_host_field)
         })
 }
@@ -1454,6 +1492,7 @@ pub(crate) async fn refresh_access_token(
     refresh_token: &str,
     byoc_client_id: Option<&str>,
     byoc_client_secret: Option<&str>,
+    token_url_override: Option<&str>,
 ) -> anyhow::Result<(String, i64, Option<String>)> {
     let client_id = match byoc_client_id {
         Some(id) => id.to_string(),
@@ -1466,7 +1505,8 @@ pub(crate) async fn refresh_access_token(
             .map_err(|_| anyhow::anyhow!("{} env var not set", config.client_secret_env))?,
     };
 
-    let mut req = reqwest::Client::new().post(config.token_url);
+    let token_url = token_url_override.unwrap_or(config.token_url);
+    let mut req = reqwest::Client::new().post(token_url);
 
     if matches!(config.client_auth, ClientCredentialMethod::BasicAuth) {
         let b64 = base64::engine::general_purpose::STANDARD;
@@ -2746,6 +2786,7 @@ mod tests {
                 let host = match rule.pattern {
                     HostPattern::Exact(h) => h,
                     HostPattern::Suffix(_) => continue, // suffix rules don't share hosts
+                    HostPattern::Any => continue, // dynamic host-gated rules don't share hosts
                 };
                 let entry = hosts.entry(host).or_default();
                 if rule.path_prefix.is_some() {
@@ -3016,6 +3057,18 @@ mod tests {
         assert_eq!(
             credential_host_field("jfrog-artifactory", "nanos.jfrog.io"),
             Some("subdomain")
+        );
+    }
+
+    #[test]
+    fn gitlab_has_credential_host_field_for_public_and_self_hosted_instances() {
+        assert_eq!(
+            credential_host_field("gitlab", "gitlab.com"),
+            Some("instance_host")
+        );
+        assert_eq!(
+            credential_host_field("gitlab", "gitlab.example.com"),
+            Some("instance_host")
         );
     }
 
