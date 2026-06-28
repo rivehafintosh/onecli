@@ -38,6 +38,9 @@ interface SecretsContentProps {
   renderCreateButton?: (onCreate: () => void) => React.ReactNode;
 }
 
+const isGenericLlmSecret = (secret: Secret) =>
+  secret.type === "generic" && isGenericLlmHost(secret.hostPattern);
+
 export const SecretsContent = ({
   typeFilter,
   getSecrets,
@@ -56,7 +59,9 @@ export const SecretsContent = ({
   const paramHandled = useRef(false);
 
   const allFiltered = secrets.filter((s: Secret) =>
-    typeFilter === "generic" ? s.type === "generic" : s.type !== "generic",
+    typeFilter === "generic"
+      ? s.type === "generic" && !isGenericLlmSecret(s)
+      : s.type !== "generic" || isGenericLlmSecret(s),
   );
   const ownSecrets = allFiltered.filter(
     (s: Secret) => s.scope === pageScope || !s.scope,
@@ -101,15 +106,19 @@ export const SecretsContent = ({
       });
       setCreateOpen(true);
       router.replace(window.location.pathname, { scroll: false });
-    } else if (createType === "generic" && typeFilter === "generic" && host) {
+    } else if (
+      createType === "generic" &&
+      (typeFilter === "generic" || typeFilter === "llm") &&
+      host
+    ) {
       paramHandled.current = true;
       setPrefill({
         type: "generic",
         hostPattern: host,
         pathPattern: safeDecode(searchParams.get("path")),
         name: safeDecode(searchParams.get("name")) ?? `${host} Secret`,
-        headerName: safeDecode(searchParams.get("header")),
-        valueFormat: safeDecode(searchParams.get("format")),
+        headerName: safeDecode(searchParams.get("header")) ?? "Authorization",
+        valueFormat: safeDecode(searchParams.get("format")) ?? "Bearer {value}",
         paramName: safeDecode(searchParams.get("param")),
         paramFormat: safeDecode(searchParams.get("paramFormat")),
       });
@@ -196,7 +205,7 @@ export const SecretsContent = ({
         prefill={prefill}
         defaultType={typeFilter === "generic" ? "generic" : undefined}
         allowedTypes={
-          typeFilter === "llm" ? ["anthropic", "openai"] : undefined
+          typeFilter === "llm" ? ["anthropic", "openai", "generic"] : undefined
         }
         secretActions={secretActions}
       />

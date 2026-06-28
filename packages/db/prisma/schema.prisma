@@ -1848,6 +1848,22 @@ model PolicyRuleTarget {
   @@map("policy_rule_targets")
 }
 
+model AgentVaultSecret {
+  agentId   String   @map("agent_id")
+  provider  String
+  hostname  String
+  path      String
+  field     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, provider, hostname, path, field])
+  @@index([agentId])
+  @@index([provider, hostname])
+  @@map("agent_vault_secrets")
+}
+
 model AuditLog {
   id             String        @id @default(uuid())
   workspaceId    String?       @map("workspace_id")

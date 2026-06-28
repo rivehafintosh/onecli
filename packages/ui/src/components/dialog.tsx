@@ -55,6 +55,11 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
 }) {
+  const fallbackDescriptionId = React.useId();
+  const ariaDescribedBy = props["aria-describedby"];
+  const needsFallbackDescription =
+    ariaDescribedBy === undefined && !hasDialogDescription(children);
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -76,7 +81,18 @@ function DialogContent({
           className,
         )}
         {...props}
+        aria-describedby={
+          needsFallbackDescription ? fallbackDescriptionId : ariaDescribedBy
+        }
       >
+        {needsFallbackDescription && (
+          <DialogPrimitive.Description
+            id={fallbackDescriptionId}
+            className="sr-only"
+          >
+            Dialog
+          </DialogPrimitive.Description>
+        )}
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close
@@ -90,6 +106,16 @@ function DialogContent({
       </DialogPrimitive.Content>
     </DialogPortal>
   );
+}
+
+function hasDialogDescription(children: React.ReactNode): boolean {
+  return React.Children.toArray(children).some((child) => {
+    if (!React.isValidElement(child)) return false;
+    if (child.type === DialogDescription) return true;
+    return hasDialogDescription(
+      (child.props as { children?: React.ReactNode }).children,
+    );
+  });
 }
 
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {

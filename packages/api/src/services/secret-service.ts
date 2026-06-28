@@ -18,6 +18,7 @@ import {
   type CreateSecretInput,
   type UpdateSecretInput,
 } from "../validations/secret";
+import { listHashicorpVaultSecretReferencesForScope } from "./hashicorp-vault-secret-references";
 
 const normalizeOpenaiValue = (
   raw: string,
@@ -243,6 +244,8 @@ export const listSecrets = async (scope: ResourceScope) => {
         ? (lastErrorByHost.get(s.hostPattern) ?? null)
         : null,
   }));
+
+  return [...dbSecrets, ...vaultSecrets];
 };
 
 /**
