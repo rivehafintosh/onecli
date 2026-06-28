@@ -27,6 +27,10 @@ interface Secret {
   injectionConfig: unknown;
   metadata: Record<string, unknown> | null;
   scope?: string | null;
+  source?: "db" | "vault";
+  vaultProvider?: string;
+  vaultPath?: string;
+  vaultField?: string;
   createdAt: Date;
 }
 
@@ -182,6 +186,7 @@ export const SecretsContent = ({
             <SecretCard
               key={secret.id}
               secret={secret}
+              badge={secret.source === "vault" ? "Vault" : undefined}
               secretActions={secretActions}
             />
           ))}

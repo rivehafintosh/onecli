@@ -1,5 +1,6 @@
 import { Prisma, db } from "@onecli/db";
 import { getCrypto } from "../providers";
+import { ServiceError } from "./errors";
 
 export const HASHICORP_VAULT_PROVIDER = "hashicorp-vault";
 
@@ -7,12 +8,17 @@ interface VaultCredentialMapping {
   hostname?: unknown;
   path?: unknown;
   field?: unknown;
+  path_pattern?: unknown;
+  pathPattern?: unknown;
+  path_pattern_field?: unknown;
+  username_field?: unknown;
 }
 
 interface NormalizedVaultCredentialMapping {
   hostname: string;
   path: string;
   field: string;
+  pathPattern: string | null;
 }
 
 export interface VaultSecretReference {
@@ -30,6 +36,37 @@ const SECRET_TYPE_LABELS: Record<string, string> = {
   anthropic: "Anthropic API Key",
   openai: "OpenAI",
   generic: "Generic Secret",
+};
+
+const getPathPattern = (mapping: VaultCredentialMapping) => {
+  const value = mapping.path_pattern ?? mapping.pathPattern;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+};
+
+const assertValidHostPattern = (value: string) => {
+  if (!value) {
+    throw new ServiceError("BAD_REQUEST", "Host pattern is required");
+  }
+  if (value.includes("://")) {
+    throw new ServiceError(
+      "BAD_REQUEST",
+      "Enter a hostname, not a URL (remove http:// or https://)",
+    );
+  }
+  if (value.includes("/")) {
+    throw new ServiceError(
+      "BAD_REQUEST",
+      "Enter a hostname only, not a path (use the path pattern field for paths)",
+    );
+  }
+  if (value.includes(" ")) {
+    throw new ServiceError(
+      "BAD_REQUEST",
+      "Host pattern must not contain spaces",
+    );
+  }
 };
 
 export const buildVaultSecretId = ({
@@ -137,7 +174,7 @@ const listHashicorpVaultSecretReferences = async (
             ? "Vault Secret"
             : `${SECRET_TYPE_LABELS[type]} via Vault`,
         hostPattern: hostname,
-        pathPattern: null,
+        pathPattern: getPathPattern(mapping),
         injectionConfig: Prisma.JsonNull,
         isPlatform: false,
         scope: "project",
@@ -167,6 +204,160 @@ const decryptHashicorpConnectionData = async (
   }
 
   return connectionData as HashicorpVaultConnectionData;
+};
+
+const encryptHashicorpConnectionData = async (
+  data: HashicorpVaultConnectionData,
+  encrypt: boolean,
+): Promise<Prisma.InputJsonValue> => {
+  if (!encrypt) return data as Prisma.InputJsonValue;
+  return {
+    encrypted: await getCrypto().encrypt(JSON.stringify(data)),
+  } as Prisma.InputJsonValue;
+};
+
+export const updateHashicorpVaultSecretReference = async (
+  projectId: string | undefined,
+  secretId: string,
+  input: {
+    hostPattern?: string;
+    pathPattern?: string | null;
+  },
+) => {
+  const reference = parseVaultSecretId(secretId);
+  if (reference?.provider !== HASHICORP_VAULT_PROVIDER) return false;
+  if (!projectId) {
+    throw new ServiceError(
+      "BAD_REQUEST",
+      "HashiCorp Vault mappings are only available per project",
+    );
+  }
+
+  const vaultConnection = await db.vaultConnection.findFirst({
+    where: {
+      projectId,
+      provider: HASHICORP_VAULT_PROVIDER,
+      status: "connected",
+    },
+    select: {
+      id: true,
+      connectionData: true,
+    },
+  });
+  if (!vaultConnection) return false;
+
+  const data = await decryptHashicorpConnectionData(
+    vaultConnection.connectionData,
+  );
+  const mappings = Array.isArray(data?.mappings) ? data.mappings : [];
+  const mappingIndex = mappings.findIndex(
+    (mapping) =>
+      isVaultCredentialMapping(mapping) &&
+      mapping.hostname.trim() === reference.hostname &&
+      mapping.path.trim() === reference.path &&
+      mapping.field.trim() === reference.field,
+  );
+  if (mappingIndex < 0 || !data) return false;
+
+  const current = mappings[mappingIndex] as VaultCredentialMapping;
+  const nextHostname =
+    input.hostPattern !== undefined
+      ? input.hostPattern.trim()
+      : reference.hostname;
+  const next: VaultCredentialMapping = {
+    ...current,
+    hostname: nextHostname,
+  };
+  assertValidHostPattern(nextHostname);
+
+  const nextPathPattern =
+    input.pathPattern !== undefined
+      ? input.pathPattern?.trim() || null
+      : getPathPattern(current);
+  delete next.pathPattern;
+  if (nextPathPattern) {
+    next.path_pattern = nextPathPattern;
+  } else {
+    delete next.path_pattern;
+  }
+
+  data.mappings = mappings.map((mapping, index) =>
+    index === mappingIndex ? next : mapping,
+  );
+
+  const encrypted =
+    !!vaultConnection.connectionData &&
+    typeof vaultConnection.connectionData === "object" &&
+    !Array.isArray(vaultConnection.connectionData) &&
+    typeof vaultConnection.connectionData["encrypted"] === "string";
+
+  await db.vaultConnection.update({
+    where: { id: vaultConnection.id },
+    data: {
+      connectionData: await encryptHashicorpConnectionData(data, encrypted),
+    },
+  });
+
+  return true;
+};
+
+export const deleteHashicorpVaultSecretReference = async (
+  projectId: string | undefined,
+  secretId: string,
+) => {
+  const reference = parseVaultSecretId(secretId);
+  if (reference?.provider !== HASHICORP_VAULT_PROVIDER) return false;
+  if (!projectId) {
+    throw new ServiceError(
+      "BAD_REQUEST",
+      "HashiCorp Vault mappings are only available per project",
+    );
+  }
+
+  const vaultConnection = await db.vaultConnection.findFirst({
+    where: {
+      projectId,
+      provider: HASHICORP_VAULT_PROVIDER,
+      status: "connected",
+    },
+    select: {
+      id: true,
+      connectionData: true,
+    },
+  });
+  if (!vaultConnection) return false;
+
+  const data = await decryptHashicorpConnectionData(
+    vaultConnection.connectionData,
+  );
+  const mappings = Array.isArray(data?.mappings) ? data.mappings : [];
+  const nextMappings = mappings.filter(
+    (mapping) =>
+      !(
+        isVaultCredentialMapping(mapping) &&
+        mapping.hostname.trim() === reference.hostname &&
+        mapping.path.trim() === reference.path &&
+        mapping.field.trim() === reference.field
+      ),
+  );
+  if (!data || nextMappings.length === mappings.length) return false;
+
+  data.mappings = nextMappings;
+
+  const encrypted =
+    !!vaultConnection.connectionData &&
+    typeof vaultConnection.connectionData === "object" &&
+    !Array.isArray(vaultConnection.connectionData) &&
+    typeof vaultConnection.connectionData["encrypted"] === "string";
+
+  await db.vaultConnection.update({
+    where: { id: vaultConnection.id },
+    data: {
+      connectionData: await encryptHashicorpConnectionData(data, encrypted),
+    },
+  });
+
+  return true;
 };
 
 const isVaultCredentialMapping = (

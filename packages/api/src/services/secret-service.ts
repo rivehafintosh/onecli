@@ -18,7 +18,11 @@ import {
   type CreateSecretInput,
   type UpdateSecretInput,
 } from "../validations/secret";
-import { listHashicorpVaultSecretReferencesForScope } from "./hashicorp-vault-secret-references";
+import {
+  deleteHashicorpVaultSecretReference,
+  listHashicorpVaultSecretReferencesForScope,
+  updateHashicorpVaultSecretReference,
+} from "./hashicorp-vault-secret-references";
 
 const normalizeOpenaiValue = (
   raw: string,
@@ -409,6 +413,12 @@ export const createSecret = async (
 };
 
 export const deleteSecret = async (scope: ResourceScope, secretId: string) => {
+  const deletedVaultReference = await deleteHashicorpVaultSecretReference(
+    scope.projectId,
+    secretId,
+  );
+  if (deletedVaultReference) return;
+
   const secret = await db.secret.findFirst({
     where: scopeOwnership(scope, secretId),
     select: { id: true },
@@ -424,6 +434,16 @@ export const updateSecret = async (
   secretId: string,
   input: UpdateSecretInput,
 ) => {
+  const updatedVaultReference = await updateHashicorpVaultSecretReference(
+    scope.projectId,
+    secretId,
+    {
+      hostPattern: input.hostPattern,
+      pathPattern: input.pathPattern,
+    },
+  );
+  if (updatedVaultReference) return;
+
   const secret = await db.secret.findFirst({
     where: scopeOwnership(scope, secretId),
     select: { id: true, type: true },
