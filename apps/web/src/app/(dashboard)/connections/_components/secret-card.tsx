@@ -44,6 +44,10 @@ interface SecretCardProps {
     injectionConfig: unknown;
     metadata: Record<string, unknown> | null;
     isPlatform: boolean;
+    source?: "db" | "vault";
+    vaultProvider?: string;
+    vaultPath?: string;
+    vaultField?: string;
     createdAt: Date;
   };
   onUpdate?: () => void;
@@ -87,6 +91,10 @@ export const SecretCard = ({
           | { vault: string; item: string; field: string }
           | undefined)
       : undefined;
+  const vaultDisplay =
+    secret.source === "vault" && secret.vaultPath && secret.vaultField
+      ? `${secret.vaultPath} › ${secret.vaultField}`
+      : null;
 
   return (
     <>
@@ -133,6 +141,14 @@ export const SecretCard = ({
                   Value:{" "}
                   <code className="bg-muted rounded px-1 py-0.5 font-mono">
                     {opDisplay.vault} › {opDisplay.item} › {opDisplay.field}
+                  </code>
+                </span>
+              )}
+              {vaultDisplay && (
+                <span className="text-muted-foreground">
+                  Vault:{" "}
+                  <code className="bg-muted rounded px-1 py-0.5 font-mono">
+                    {vaultDisplay}
                   </code>
                 </span>
               )}

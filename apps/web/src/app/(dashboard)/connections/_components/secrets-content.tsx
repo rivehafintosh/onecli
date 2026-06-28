@@ -29,6 +29,10 @@ interface Secret {
   metadata: Record<string, unknown> | null;
   isPlatform: boolean;
   scope?: string | null;
+  source?: "db" | "vault";
+  vaultProvider?: string;
+  vaultPath?: string;
+  vaultField?: string;
   createdAt: Date;
 }
 
@@ -186,6 +190,7 @@ export const SecretsContent = ({
             <SecretCard
               key={secret.id}
               secret={secret}
+              badge={secret.source === "vault" ? "Vault" : undefined}
               secretActions={secretActions}
             />
           ))}
