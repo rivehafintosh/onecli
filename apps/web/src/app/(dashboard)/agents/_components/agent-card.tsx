@@ -34,6 +34,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -61,7 +62,11 @@ interface AgentCardProps {
     isDefault: boolean;
     secretMode: SecretMode;
     createdAt: Date;
-    _count: { agentSecrets: number; agentAppConnections: number };
+    _count: {
+      agentSecrets: number;
+      agentVaultSecrets: number;
+      agentAppConnections: number;
+    };
   };
   autoOpenAccess?: boolean;
 }
@@ -96,7 +101,7 @@ export const AgentCard = ({ agent, autoOpenAccess }: AgentCardProps) => {
 
   const accessLabel = (() => {
     if (agent.secretMode !== "selective") return "All credentials";
-    const s = agent._count.agentSecrets;
+    const s = agent._count.agentSecrets + agent._count.agentVaultSecrets;
     const a = agent._count.agentAppConnections;
     const parts: string[] = [];
     if (s > 0) parts.push(`${s} ${s === 1 ? "secret" : "secrets"}`);
@@ -265,6 +270,9 @@ export const AgentCard = ({ agent, autoOpenAccess }: AgentCardProps) => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Rename agent</DialogTitle>
+            <DialogDescription>
+              Update the display name for this agent.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
             <Label htmlFor={`rename-agent-${agent.id}`}>Name</Label>

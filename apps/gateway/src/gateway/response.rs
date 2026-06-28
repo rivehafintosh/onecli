@@ -219,8 +219,13 @@ pub(crate) fn credential_not_found<S>(
 ) -> Response<ForwardBody<S>> {
     let base = scoped_url(dashboard_url(), "", project_id);
     let encoded_host = utf8_percent_encode(hostname, NON_ALPHANUMERIC);
+    let tab = if crate::policy::is_llm_host(hostname) {
+        "llms"
+    } else {
+        "custom"
+    };
     let secret_url =
-        format!("{base}/connections/custom?create=generic&host={encoded_host}&path=%2F%2A");
+        format!("{base}/connections/{tab}?create=generic&host={encoded_host}&path=%2F%2A");
     with_no_retry(json_error(
         status,
         serde_json::json!({

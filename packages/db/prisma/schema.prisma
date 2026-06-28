@@ -178,6 +178,7 @@ model Agent {
   project     Project  @relation(fields: [projectId], references: [id])
 
   agentSecrets        AgentSecret[]
+  agentVaultSecrets   AgentVaultSecret[]
   agentAppConnections AgentAppConnection[]
   policyRules         PolicyRule[]
 
@@ -264,6 +265,22 @@ model AgentSecret {
 
   @@id([agentId, secretId])
   @@map("agent_secrets")
+}
+
+model AgentVaultSecret {
+  agentId   String   @map("agent_id")
+  provider  String
+  hostname  String
+  path      String
+  field     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, provider, hostname, path, field])
+  @@index([agentId])
+  @@index([provider, hostname])
+  @@map("agent_vault_secrets")
 }
 
 model AuditLog {

@@ -6,7 +6,11 @@ export interface Agent {
   isDefault: boolean;
   secretMode: string;
   createdAt: string;
-  _count: { agentSecrets: number; agentAppConnections: number };
+  _count: {
+    agentSecrets: number;
+    agentVaultSecrets: number;
+    agentAppConnections: number;
+  };
 }
 
 export interface CreatedAgent {

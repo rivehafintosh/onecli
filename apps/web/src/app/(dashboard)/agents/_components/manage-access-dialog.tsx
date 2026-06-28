@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -493,10 +494,10 @@ export const ManageAccessDialog = ({
         <DialogContent className="gap-0 p-0 sm:max-w-lg">
           <DialogHeader className="p-6 pb-4">
             <DialogTitle>Credential access for {agent.name}</DialogTitle>
-            <p className="text-muted-foreground text-xs leading-relaxed">
+            <DialogDescription className="text-xs leading-relaxed">
               Secrets and app connections are injected by the gateway at request
               time. The agent never sees raw values.
-            </p>
+            </DialogDescription>
           </DialogHeader>
 
           {/* Mode selection */}
@@ -677,11 +678,11 @@ export const ManageAccessDialog = ({
                   <DialogTitle className="text-sm">
                     Manage {granularDialogConfig.itemLabel.singular} access
                   </DialogTitle>
-                  <p className="text-muted-foreground text-xs">
+                  <DialogDescription className="text-xs">
                     {granularDialogConn?.label ??
                       extractLabel(granularDialogMeta ?? undefined) ??
                       granularDialogApp?.name}
-                  </p>
+                  </DialogDescription>
                 </div>
               </div>
             </DialogHeader>

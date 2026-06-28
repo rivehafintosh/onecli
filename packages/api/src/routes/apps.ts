@@ -708,11 +708,16 @@ export const appRoutes = () => {
       );
     }
 
-    const { clientId, clientSecret } = parsed.data;
+    for (const field of appDef.configurable.fields) {
+      if (!parsed.data[field.name]?.trim()) {
+        return c.json({ error: `${field.label} is required` }, 400);
+      }
+    }
+
     await upsertAppConfig(
       { projectId: requireProjectId(auth) },
       provider,
-      { clientId, clientSecret },
+      parsed.data,
       appDef.configurable.fields,
     );
 

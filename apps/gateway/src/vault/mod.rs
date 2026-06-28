@@ -6,6 +6,7 @@
 pub(crate) mod api;
 pub(crate) mod bitwarden;
 pub(crate) mod bitwarden_db;
+pub(crate) mod hashicorp;
 pub(crate) mod onepassword;
 pub(crate) mod onepassword_api;
 
@@ -27,6 +28,7 @@ pub(crate) struct VaultCredential {
     #[allow(dead_code)]
     pub username: Option<String>,
     pub password: Option<String>,
+    pub path_pattern: Option<String>,
 }
 
 /// Result of a successful pairing operation.
@@ -90,9 +92,30 @@ pub(crate) trait VaultProvider: Send + Sync {
     /// Pair with the vault using provider-specific credentials.
     async fn pair(&self, project_id: &str, params: &serde_json::Value) -> Result<PairResult>;
 
-    /// Request a credential for a hostname from this project's vault.
+    /// Request one credential for a hostname from this project's vault.
+    ///
+    /// This is the upstream provider contract used by Bitwarden and 1Password.
     async fn request_credential(&self, project_id: &str, hostname: &str)
         -> Option<VaultCredential>;
+
+    /// Request agent-scoped credentials for providers that can return multiple
+    /// mapped values. Existing providers inherit the upstream single-value
+    /// behavior without needing provider-specific changes.
+    async fn request_credentials(
+        &self,
+        project_id: &str,
+        hostname: &str,
+        _agent_id: Option<&str>,
+        selective: bool,
+    ) -> Vec<VaultCredential> {
+        if selective {
+            return vec![];
+        }
+        self.request_credential(project_id, hostname)
+            .await
+            .into_iter()
+            .collect()
+    }
 
     /// Get connection status for this project.
     async fn status(&self, project_id: &str) -> ProviderStatus;
@@ -115,18 +138,23 @@ impl VaultService {
         Self { providers, pool }
     }
 
-    /// Try each provider in order until one returns a credential.
-    pub async fn request_credential(
+    /// Try each provider in order until one returns one or more credentials.
+    pub async fn request_credentials(
         &self,
         project_id: &str,
         hostname: &str,
-    ) -> Option<VaultCredential> {
+        agent_id: Option<&str>,
+        selective: bool,
+    ) -> Vec<VaultCredential> {
         for provider in &self.providers {
-            if let Some(cred) = provider.request_credential(project_id, hostname).await {
-                return Some(cred);
+            let creds = provider
+                .request_credentials(project_id, hostname, agent_id, selective)
+                .await;
+            if !creds.is_empty() {
+                return creds;
             }
         }
-        None
+        vec![]
     }
 
     /// Pair with a specific provider. The provider owns DB persistence.

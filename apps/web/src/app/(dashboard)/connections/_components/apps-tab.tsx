@@ -185,22 +185,36 @@ export const AppsTab = ({
     [connectionCounts],
   );
 
+  const handleConnectParam = useCallback(
+    (app: AppDefinition, agentName?: string) => {
+      setConnectApp(app);
+      setConnectAgentName(agentName);
+    },
+    [],
+  );
+
+  const handleConfigureParam = useCallback((app: AppDefinition) => {
+    setConfigApp(app);
+  }, []);
+
+  const handleRequestAppParam = useCallback(
+    (hostname: string, appName?: string) => {
+      setRequestHostname(hostname);
+      setRequestAppName(appName);
+      setRequestOpen(true);
+    },
+    [],
+  );
+
   // Handle ?connect=<provider> and ?request=<hostname> URL params
   useConnectParam({
     loading,
     connectedProviders,
     configuredProviders,
     envDefaultProviders,
-    onConnect: useCallback((app: AppDefinition, agentName?: string) => {
-      setConnectApp(app);
-      setConnectAgentName(agentName);
-    }, []),
-    onConfigure: setConfigApp,
-    onRequestApp: useCallback((hostname: string, appName?: string) => {
-      setRequestHostname(hostname);
-      setRequestAppName(appName);
-      setRequestOpen(true);
-    }, []),
+    onConnect: handleConnectParam,
+    onConfigure: handleConfigureParam,
+    onRequestApp: handleRequestAppParam,
   });
 
   const filteredApps = useMemo(() => {

@@ -23,6 +23,16 @@ const resolveAppVersion = () => {
 };
 const appVersion = resolveAppVersion();
 
+const publicUrl = ({ value, domain, fallback }) => {
+  if (value) return value;
+  if (domain) {
+    const scheme =
+      isCloud && process.env.NODE_ENV !== "development" ? "https" : "http";
+    return `${scheme}://${domain}`;
+  }
+  return fallback;
+};
+
 // Dashboard paths that cloud intentionally serves at the SAME bare URL as OSS (shared).
 // Empty today: cloud namespaces every dashboard feature under /p, /org, /account, so no
 // bare (dashboard) path is shared. Escape hatch if OSS ever adds a dashboard route cloud
@@ -54,12 +64,16 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_EDITION: process.env.NEXT_PUBLIC_EDITION || "oss",
     NEXT_PUBLIC_APP_VERSION: appVersion,
-    NEXT_PUBLIC_API_URL: process.env.API_DOMAIN
-      ? `${isCloud && process.env.NODE_ENV !== "development" ? "https" : "http"}://${process.env.API_DOMAIN}`
-      : "http://localhost:10255",
-    NEXT_PUBLIC_GATEWAY_API_URL: process.env.GATEWAY_API_DOMAIN
-      ? `${isCloud && process.env.NODE_ENV !== "development" ? "https" : "http"}://${process.env.GATEWAY_API_DOMAIN}`
-      : "http://localhost:10255",
+    NEXT_PUBLIC_API_URL: publicUrl({
+      value: process.env.NEXT_PUBLIC_API_URL,
+      domain: process.env.API_DOMAIN,
+      fallback: isCloud ? "" : "http://localhost:10255",
+    }),
+    NEXT_PUBLIC_GATEWAY_API_URL: publicUrl({
+      value: process.env.NEXT_PUBLIC_GATEWAY_API_URL,
+      domain: process.env.GATEWAY_API_DOMAIN,
+      fallback: isCloud ? "" : "http://localhost:10255",
+    }),
   },
   turbopack: {
     resolveAlias: isCloud

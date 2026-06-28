@@ -1,5 +1,23 @@
 import type { AppDefinition } from "./types";
 
+const DEFAULT_GITLAB_INSTANCE_URL = "https://gitlab.com";
+
+const normalizeGitLabInstanceUrl = (value?: string): URL => {
+  const raw = value?.trim() || DEFAULT_GITLAB_INSTANCE_URL;
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  const url = new URL(withScheme);
+  url.pathname = url.pathname.replace(/\/+$/, "");
+  url.search = "";
+  url.hash = "";
+  return url;
+};
+
+const gitlabUrl = (instanceUrl: URL, path: string): string => {
+  const url = new URL(instanceUrl.toString());
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
+  return url.toString();
+};
+
 export const gitlab: AppDefinition = {
   id: "gitlab",
   name: "GitLab",
@@ -47,7 +65,10 @@ export const gitlab: AppDefinition = {
       },
     ],
     buildAuthUrl: ({ appCredentials, redirectUri, scopes, state }) => {
-      const url = new URL("https://gitlab.com/oauth/authorize");
+      const instanceUrl = normalizeGitLabInstanceUrl(
+        appCredentials.instanceUrl,
+      );
+      const url = new URL(gitlabUrl(instanceUrl, "/oauth/authorize"));
       url.searchParams.set("client_id", appCredentials.clientId!);
       url.searchParams.set("redirect_uri", redirectUri);
       url.searchParams.set("scope", scopes.join(" "));
@@ -56,7 +77,13 @@ export const gitlab: AppDefinition = {
       return url.toString();
     },
     exchangeCode: async ({ appCredentials, callbackParams, redirectUri }) => {
-      const tokenRes = await fetch("https://gitlab.com/oauth/token", {
+      const instanceUrl = normalizeGitLabInstanceUrl(
+        appCredentials.instanceUrl,
+      );
+      const tokenUrl = gitlabUrl(instanceUrl, "/oauth/token");
+      const apiBaseUrl = gitlabUrl(instanceUrl, "/api/v4");
+
+      const tokenRes = await fetch(tokenUrl, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -99,11 +126,14 @@ export const gitlab: AppDefinition = {
         refresh_token: tokenData.refresh_token,
         token_type: tokenData.token_type,
         expires_at: expiresAt,
+        instance_url: instanceUrl.toString().replace(/\/$/, ""),
+        instance_host: instanceUrl.hostname,
+        token_url: tokenUrl,
       };
       const scopes: string[] = [];
 
       let metadata: Record<string, unknown> | undefined;
-      const userRes = await fetch("https://gitlab.com/api/v4/user", {
+      const userRes = await fetch(`${apiBaseUrl}/user`, {
         headers: { Authorization: `Bearer ${tokenData.access_token}` },
       });
 
@@ -117,6 +147,8 @@ export const gitlab: AppDefinition = {
           username: user.username,
           name: user.name,
           avatarUrl: user.avatar_url,
+          instanceUrl: instanceUrl.toString().replace(/\/$/, ""),
+          instanceHost: instanceUrl.hostname,
         };
       }
 
@@ -127,6 +159,12 @@ export const gitlab: AppDefinition = {
   configurable: {
     hint: "Create an OAuth application under GitLab User Settings > Applications.",
     fields: [
+      {
+        name: "instanceUrl",
+        label: "GitLab URL",
+        description: "Use https://gitlab.com or your self-hosted GitLab URL.",
+        placeholder: "https://gitlab.example.com",
+      },
       {
         name: "clientId",
         label: "Application ID",

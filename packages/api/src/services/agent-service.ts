@@ -3,6 +3,13 @@ import { db, Prisma } from "@onecli/db";
 import { ServiceError } from "./errors";
 import { getPolicyValidator } from "../providers/hooks/policy-validator";
 import { IDENTIFIER_REGEX } from "../validations/agent";
+import {
+  listHashicorpVaultSecretReferencesForProject,
+  parseVaultSecretId,
+  buildVaultSecretId,
+  HASHICORP_VAULT_PROVIDER,
+  type VaultSecretReference,
+} from "./hashicorp-vault-secret-references";
 
 export type SecretMode = "all" | "selective";
 
@@ -20,7 +27,13 @@ export const listAgents = async (projectId: string) => {
       isDefault: true,
       secretMode: true,
       createdAt: true,
-      _count: { select: { agentSecrets: true, agentAppConnections: true } },
+      _count: {
+        select: {
+          agentSecrets: true,
+          agentVaultSecrets: true,
+          agentAppConnections: true,
+        },
+      },
     },
     orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
   });
@@ -261,12 +274,21 @@ export const getAgentSecrets = async (projectId: string, agentId: string) => {
 
   if (!agent) throw new ServiceError("NOT_FOUND", "Agent not found");
 
-  const rows = await db.agentSecret.findMany({
-    where: { agentId },
-    select: { secretId: true },
-  });
+  const [secretRows, vaultRows] = await Promise.all([
+    db.agentSecret.findMany({
+      where: { agentId },
+      select: { secretId: true },
+    }),
+    db.agentVaultSecret.findMany({
+      where: { agentId },
+      select: { provider: true, hostname: true, path: true, field: true },
+    }),
+  ]);
 
-  return rows.map((r) => r.secretId);
+  return [
+    ...secretRows.map((r) => r.secretId),
+    ...vaultRows.map((r) => buildVaultSecretId(r)),
+  ];
 };
 
 export const updateAgentSecretMode = async (
@@ -299,6 +321,15 @@ export const updateAgentSecrets = async (
 
   if (!agent) throw new ServiceError("NOT_FOUND", "Agent not found");
 
+  const dbSecretIds: string[] = [];
+  const vaultRefs: VaultSecretReference[] = [];
+  for (const id of secretIds) {
+    const vaultRef = parseVaultSecretId(id);
+    if (vaultRef) vaultRefs.push(vaultRef);
+    else dbSecretIds.push(id);
+  }
+  const uniqueDbSecretIds = Array.from(new Set(dbSecretIds));
+
   const project = await db.project.findUnique({
     where: { id: projectId },
     select: { organizationId: true },
@@ -306,7 +337,7 @@ export const updateAgentSecrets = async (
 
   const secrets = await db.secret.findMany({
     where: {
-      id: { in: secretIds },
+      id: { in: uniqueDbSecretIds },
       OR: [
         { projectId },
         ...(project?.organizationId
@@ -318,15 +349,46 @@ export const updateAgentSecrets = async (
   });
 
   const validIds = new Set(secrets.map((s) => s.id));
-  const invalid = secretIds.filter((id) => !validIds.has(id));
-  if (invalid.length > 0) {
+  const invalidDbIds = uniqueDbSecretIds.filter((id) => !validIds.has(id));
+  if (invalidDbIds.length > 0) {
     throw new ServiceError("BAD_REQUEST", "One or more secrets not found");
   }
 
+  const vaultReferences =
+    await listHashicorpVaultSecretReferencesForProject(projectId);
+  const validVaultIds = new Set(vaultReferences.map((ref) => ref.id));
+  const invalidVaultRefs = vaultRefs.filter(
+    (ref) =>
+      ref.provider !== HASHICORP_VAULT_PROVIDER ||
+      !validVaultIds.has(buildVaultSecretId(ref)),
+  );
+  if (invalidVaultRefs.length > 0) {
+    throw new ServiceError(
+      "BAD_REQUEST",
+      "One or more vault secrets not found",
+    );
+  }
+
+  const uniqueVaultRefs = Array.from(
+    new Map(vaultRefs.map((ref) => [buildVaultSecretId(ref), ref])).values(),
+  );
+
   await db.$transaction([
     db.agentSecret.deleteMany({ where: { agentId } }),
-    ...secretIds.map((secretId) =>
+    db.agentVaultSecret.deleteMany({ where: { agentId } }),
+    ...uniqueDbSecretIds.map((secretId) =>
       db.agentSecret.create({ data: { agentId, secretId } }),
+    ),
+    ...uniqueVaultRefs.map((ref) =>
+      db.agentVaultSecret.create({
+        data: {
+          agentId,
+          provider: ref.provider,
+          hostname: ref.hostname,
+          path: ref.path,
+          field: ref.field,
+        },
+      }),
     ),
   ]);
 };

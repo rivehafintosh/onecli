@@ -13,6 +13,7 @@ import {
   type CreateSecretInput,
   type UpdateSecretInput,
 } from "../validations/secret";
+import { listHashicorpVaultSecretReferencesForScope } from "./hashicorp-vault-secret-references";
 
 const normalizeOpenaiValue = (
   raw: string,
@@ -93,29 +94,35 @@ const buildOnePasswordMetadata = (
 export type { CreateSecretInput, UpdateSecretInput };
 
 export const listSecrets = async (scope: ResourceScope) => {
-  const secrets = await db.secret.findMany({
-    where: scopeWhere(scope),
-    select: {
-      id: true,
-      name: true,
-      type: true,
-      valueSource: true,
-      opRef: true,
-      hostPattern: true,
-      pathPattern: true,
-      injectionConfig: true,
-      metadata: true,
-      isPlatform: true,
-      scope: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const [secrets, vaultSecrets] = await Promise.all([
+    db.secret.findMany({
+      where: scopeWhere(scope),
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        valueSource: true,
+        opRef: true,
+        hostPattern: true,
+        pathPattern: true,
+        injectionConfig: true,
+        metadata: true,
+        isPlatform: true,
+        scope: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    listHashicorpVaultSecretReferencesForScope(scope),
+  ]);
 
-  return secrets.map((s) => ({
+  const dbSecrets = secrets.map((s) => ({
     ...s,
     typeLabel: SECRET_TYPE_LABELS[s.type] ?? s.type,
+    source: "db" as const,
   }));
+
+  return [...dbSecrets, ...vaultSecrets];
 };
 
 export const createSecret = async (
