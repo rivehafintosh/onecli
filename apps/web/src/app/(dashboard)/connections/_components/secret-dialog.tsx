@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useInvalidateGatewayCache } from "@/hooks/use-invalidate-cache";
 import { toast } from "sonner";
@@ -219,7 +219,7 @@ export const SecretDialog = ({
   const isOAuthMode =
     type === "openai" && openaiMode === "codex" && !fromOnePassword;
 
-  const nameError = useMemo(() => validateDisplayName(name), [name]);
+  const nameError = validateDisplayName(name);
   const showNameError = nameTouched && nameError !== null;
   const isNameValid = name.trim().length > 0 && nameError === null;
 

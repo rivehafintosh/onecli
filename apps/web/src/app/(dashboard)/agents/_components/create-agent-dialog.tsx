@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Copy, Check, CircleCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -46,7 +46,7 @@ export const CreateAgentDialog = ({
   const { copied, copy } = useCopyToClipboard();
   const createAgent = useCreateAgent();
 
-  const nameError = useMemo(() => validateDisplayName(name), [name]);
+  const nameError = validateDisplayName(name);
   const showNameError = nameTouched && nameError !== null;
   const isNameValid = name.trim().length > 0 && nameError === null;
 

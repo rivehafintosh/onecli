@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useInvalidateGatewayCache } from "@/hooks/use-invalidate-cache";
 import { toast } from "sonner";
 import {
@@ -131,7 +131,7 @@ export const CustomEndpointForm = ({
     setConditions((rule?.conditions as RuleCondition[]) ?? []);
   }, [rule, isDenyMode]);
 
-  const nameError = useMemo(() => validateDisplayName(name), [name]);
+  const nameError = validateDisplayName(name);
   const showNameError = nameTouched && nameError !== null;
   const isNameValid = name.trim().length > 0 && nameError === null;
   const isEndpointValid = !!(isNameValid && hostPattern.trim());
