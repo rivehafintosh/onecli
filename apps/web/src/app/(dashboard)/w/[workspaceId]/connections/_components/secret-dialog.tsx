@@ -271,7 +271,7 @@ export const SecretDialog = ({
   const isOAuthMode =
     type === "openai" && openaiMode === "codex" && !fromOnePassword;
 
-  const nameError = useMemo(() => validateDisplayName(name), [name]);
+  const nameError = validateDisplayName(name);
   const showNameError = nameTouched && nameError !== null;
   const isNameValid = name.trim().length > 0 && nameError === null;
 
