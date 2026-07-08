@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import { Loader2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -25,15 +32,22 @@ import { Card } from "@onecli/ui/components/card";
 import { Input } from "@onecli/ui/components/input";
 import { Label } from "@onecli/ui/components/label";
 import { Switch } from "@onecli/ui/components/switch";
+import { cn } from "@onecli/ui/lib/utils";
 import { SecretInput } from "@/components/secret-input";
+import type { PageScope } from "@/lib/api";
 import {
-  saveAppConfig,
-  getAppConfigStatus,
-  deleteAppConfigAction,
-  setAppConfigEnabled,
-} from "@/lib/actions/app-config";
+  useAppConfigStatus,
+  useSaveAppConfig,
+  useDeleteAppConfig,
+  useToggleAppConfig,
+} from "@/hooks/use-app-config";
 import { IS_CLOUD } from "@/lib/env";
 import { RedirectUri } from "./redirect-uri";
+
+export interface AppConfigFormHandle {
+  /** Open the Custom credentials section, scroll it into view, and briefly highlight it. */
+  reveal: () => void;
+}
 
 interface AppConfigFormProps {
   provider: string;
@@ -48,8 +62,9 @@ interface AppConfigFormProps {
   hint?: string;
   hasEnvDefaults: boolean;
   isConnected: boolean;
-  /** Called after any config change that invalidates the connection (save, toggle, delete). */
-  onConfigChange?: () => void;
+  pageScope?: PageScope;
+  /** Imperative handle so the page header can open + scroll to this section. */
+  ref?: Ref<AppConfigFormHandle>;
 }
 
 export const AppConfigForm = ({
@@ -59,82 +74,165 @@ export const AppConfigForm = ({
   hint,
   hasEnvDefaults,
   isConnected,
-  onConfigChange,
+  pageScope = "project",
+  ref,
 }: AppConfigFormProps) => {
   const [values, setValues] = useState<Record<string, string>>({});
-  const [hasCredentials, setHasCredentials] = useState(false);
-  const [enabled, setEnabled] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [pendingAction, setPendingAction] = useState<
     "save" | "toggle-on" | "toggle-off" | null
   >(null);
+  const [openValue, setOpenValue] = useState("");
+  const [openInitialized, setOpenInitialized] = useState(false);
+  const [highlight, setHighlight] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wantScrollRef = useRef(false);
 
-  const fetchConfig = useCallback(async () => {
-    try {
-      const config = await getAppConfigStatus(provider);
-      if (config) {
-        setValues(config.settings);
-        setHasCredentials(config.hasCredentials);
-        setEnabled(config.enabled);
-      } else {
-        setValues({});
-        setHasCredentials(false);
-        setEnabled(false);
-      }
-    } catch {
-      // Failed to fetch
-    } finally {
-      setLoading(false);
+  const statusQuery = useAppConfigStatus(provider, pageScope);
+  const saveMutation = useSaveAppConfig(provider, pageScope);
+  const deleteMutation = useDeleteAppConfig(provider, pageScope);
+  const toggleMutation = useToggleAppConfig(provider, pageScope);
+
+  const loading = statusQuery.isPending;
+  // An org-inherited status (`source: "organization"`) means there is no
+  // project row behind it — the credentials live on the organization, and the
+  // delete/toggle mutations would 404 here. For this editor that is the same
+  // as "not configured yet": show the add-credentials state.
+  const orgInherited = statusQuery.data?.source === "organization";
+  const hasCredentials =
+    !orgInherited && (statusQuery.data?.hasCredentials ?? false);
+  const enabled = !orgInherited && (statusQuery.data?.enabled ?? false);
+
+  // Blast radius of removing/replacing these credentials — present only on the
+  // org config surface (project responses omit `dependents`). Drives the confirm
+  // gating and the precise counts in the dialogs; zero on the project page, so
+  // that flow stays keyed on `isConnected` alone.
+  const dependents = statusQuery.data?.dependents;
+  const dependentTotal =
+    (dependents?.orgConnections ?? 0) + (dependents?.projectConnections ?? 0);
+  const dependentSentence = (() => {
+    if (!dependents || dependentTotal === 0) return null;
+    const parts: string[] = [];
+    if (dependents.orgConnections > 0) {
+      parts.push(
+        `${dependents.orgConnections} organization ${
+          dependents.orgConnections === 1 ? "connection" : "connections"
+        }`,
+      );
     }
-  }, [provider]);
+    if (dependents.projectConnections > 0) {
+      parts.push(
+        `${dependents.projectConnections} project ${
+          dependents.projectConnections === 1 ? "connection" : "connections"
+        }`,
+      );
+    }
+    // Passive voice reads correctly both after the Remove dialog's lead-in
+    // ("…platform defaults. N connections will be disconnected.") and as the
+    // opening of the disconnect dialog — avoiding a stacked "This will …".
+    return `${parts.join(" and ")} will be disconnected.`;
+  })();
 
+  // Keep the editable fields in sync with the fetched settings (also clears
+  // them after a delete, once the invalidated query settles). Keyed on the
+  // settings reference — not the whole payload — so the optimistic toggle
+  // (which replaces the payload but spreads the same settings object) can't
+  // wipe in-progress edits.
+  const settings = statusQuery.data?.settings;
+  const hasStatus = !!statusQuery.data;
   useEffect(() => {
-    fetchConfig();
-  }, [fetchConfig]);
+    if (hasStatus) setValues(settings ?? {});
+  }, [hasStatus, settings]);
+
+  // On first load, open the section by default when custom credentials are
+  // enabled or there are no platform defaults to fall back on. Adjusted during
+  // render (guarded) so the section mounts already-open — no open/close flash;
+  // never overrides an explicit reveal() or later refetches.
+  if (!loading && !openInitialized) {
+    setOpenInitialized(true);
+    // Org-inherited credentials behave like platform defaults here: the app is
+    // usable without project-level setup, so the section stays collapsed.
+    if (enabled || (!hasEnvDefaults && !orgInherited)) {
+      setOpenValue("credentials");
+    }
+  }
+
+  const revealSection = useCallback(() => {
+    const prefersReduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    rootRef.current?.scrollIntoView({
+      behavior: prefersReduced ? "auto" : "smooth",
+      block: "start",
+    });
+    // Move focus to the section's disclosure trigger (without a second scroll) so
+    // keyboard and screen-reader users are taken here too — and hear its expanded
+    // state — matching the visual scroll for pointer users.
+    triggerRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      reveal: () => {
+        setOpenInitialized(true);
+        setOpenValue("credentials");
+        setHighlight(true);
+        wantScrollRef.current = true;
+        // Let the accordion begin expanding before scrolling. If the section is
+        // still loading (no ref yet), the effect below scrolls once it mounts.
+        window.setTimeout(() => {
+          if (rootRef.current && wantScrollRef.current) {
+            wantScrollRef.current = false;
+            revealSection();
+          }
+        }, 150);
+        window.setTimeout(() => setHighlight(false), 2000);
+      },
+    }),
+    [revealSection],
+  );
+
+  // If reveal() fired before the section finished loading, reveal once it mounts.
+  useEffect(() => {
+    if (loading || !wantScrollRef.current) return;
+    wantScrollRef.current = false;
+    const t = window.setTimeout(revealSection, 150);
+    return () => window.clearTimeout(t);
+  }, [loading, revealSection]);
 
   const doSave = async () => {
-    setSaving(true);
     try {
-      await saveAppConfig(provider, values);
+      await saveMutation.mutateAsync(values);
       toast.success("Credentials saved");
-      await fetchConfig();
-      onConfigChange?.();
     } catch {
       toast.error("Failed to save credentials");
-    } finally {
-      setSaving(false);
     }
   };
 
   const handleSave = () => {
-    if (isConnected) {
+    if (isConnected || dependentTotal > 0) {
       setPendingAction("save");
     } else {
       doSave();
     }
   };
 
-  const doToggle = async (checked: boolean) => {
-    setEnabled(checked);
-    try {
-      await setAppConfigEnabled(provider, checked);
-      toast.success(
-        checked ? "Custom credentials enabled" : "Custom credentials disabled",
-      );
-      onConfigChange?.();
-    } catch {
-      setEnabled(!checked);
-      toast.error("Failed to update");
-    }
+  const doToggle = (checked: boolean) => {
+    toggleMutation.mutate(checked, {
+      onSuccess: () =>
+        toast.success(
+          checked
+            ? "Custom credentials enabled"
+            : "Custom credentials disabled",
+        ),
+      onError: () => toast.error("Failed to update"),
+    });
   };
 
   const handleToggle = (checked: boolean) => {
-    if (checked && !hasCredentials) {
-      setEnabled(false);
-      return;
-    }
-    if (isConnected) {
+    if (checked && !hasCredentials) return;
+    if (isConnected || dependentTotal > 0) {
       setPendingAction(checked ? "toggle-on" : "toggle-off");
     } else {
       doToggle(checked);
@@ -143,12 +241,8 @@ export const AppConfigForm = ({
 
   const doDelete = async () => {
     try {
-      await deleteAppConfigAction(provider);
-      setValues({});
-      setHasCredentials(false);
-      setEnabled(false);
+      await deleteMutation.mutateAsync();
       toast.success("Credentials removed");
-      onConfigChange?.();
     } catch {
       toast.error("Failed to remove credentials");
     }
@@ -156,13 +250,13 @@ export const AppConfigForm = ({
 
   const handleConfirmAction = async () => {
     if (pendingAction === "save") await doSave();
-    else if (pendingAction === "toggle-on") await doToggle(true);
-    else if (pendingAction === "toggle-off") await doToggle(false);
+    else if (pendingAction === "toggle-on") doToggle(true);
+    else if (pendingAction === "toggle-off") doToggle(false);
     setPendingAction(null);
   };
 
   const hasInput = fields.some((f) => !!values[f.name]);
-  const defaultOpen = enabled || !hasEnvDefaults;
+  const saving = saveMutation.isPending;
 
   if (loading) {
     return (
@@ -174,12 +268,18 @@ export const AppConfigForm = ({
 
   return (
     <Accordion
+      ref={rootRef}
       type="single"
       collapsible
-      defaultValue={defaultOpen ? "credentials" : undefined}
+      value={openValue}
+      onValueChange={setOpenValue}
+      className={cn(
+        "scroll-mt-6 rounded-lg transition-shadow motion-reduce:transition-none",
+        highlight && "ring-2 ring-ring/70",
+      )}
     >
       <AccordionItem value="credentials" className="border-b-0 border-t">
-        <AccordionTrigger className="py-3 hover:no-underline">
+        <AccordionTrigger ref={triggerRef} className="py-3 hover:no-underline">
           <span className="text-muted-foreground flex items-center gap-2 text-xs font-normal">
             <Settings2 className="size-3.5" />
             Custom credentials
@@ -295,6 +395,7 @@ export const AppConfigForm = ({
                         {hasEnvDefaults
                           ? `This will delete your credentials. ${appName} will fall back to platform defaults.`
                           : `This will delete your credentials. ${appName} will no longer be available until reconfigured.`}
+                        {dependentSentence ? ` ${dependentSentence}` : ""}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -325,8 +426,9 @@ export const AppConfigForm = ({
           <AlertDialogHeader>
             <AlertDialogTitle>This will disconnect {appName}</AlertDialogTitle>
             <AlertDialogDescription>
-              Changing credentials will disconnect your current {appName}{" "}
-              connection. You&apos;ll need to reconnect afterward.
+              {dependentSentence
+                ? `${dependentSentence} You'll need to reconnect afterward.`
+                : `Changing credentials will disconnect your current ${appName} connection. You'll need to reconnect afterward.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

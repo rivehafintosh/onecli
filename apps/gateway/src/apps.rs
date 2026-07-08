@@ -30,7 +30,7 @@ pub(crate) enum RequestFinalizer {
     /// AWS Signature Version 4 — signs the request with IAM credentials.
     AwsSigV4,
     /// AWS STS AssumeRole — resolves temporary credentials, then signs with SigV4.
-    #[cfg(feature = "cloud")]
+    #[cfg(edition_cloud)]
     AwsAssumeRole,
 }
 
@@ -1131,12 +1131,12 @@ static APP_PROVIDERS: &[AppProvider] = &[
 
 // ── Public API ─────────────────────────────────────────────────────────
 
-/// Iterate over all registered providers, including cloud-only providers
-/// added by the `cloud_apps` module.
+/// Iterate over all registered providers, including the EE-provided cloud-app providers
+/// added by the `ee_apps` module.
 fn all_providers() -> impl Iterator<Item = &'static AppProvider> {
     APP_PROVIDERS
         .iter()
-        .chain(crate::cloud_apps::providers().iter())
+        .chain(crate::ee_apps::providers().iter())
 }
 
 /// Return the request finalizer for the first matching provider, if any.

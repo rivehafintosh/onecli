@@ -14,7 +14,7 @@ export const AUDIT_ACTIONS = {
   REGENERATE: "regenerate",
   CONNECT: "connect",
   DISCONNECT: "disconnect",
-  // Cloud-only (partner layer): a user claims a partner-created org as its owner.
+  // EE-only (partner layer): a user claims a partner-created org as its owner.
   CLAIM: "claim",
 } as const;
 
@@ -28,11 +28,13 @@ export const AUDIT_SERVICES = {
   DEPLOYMENT: "deployment",
   PROJECT: "project",
   ORGANIZATION: "organization",
-  // Cloud-only (partner layer)
+  // EE-only (partner layer)
   PARTNER: "partner",
   PARTNER_SECRET: "partner-secret",
-  // Cloud-only (budget module): per-(secret, org) spend caps
+  // EE-only (budget module): per-(secret, org) spend caps
   BUDGET: "budget",
+  // EE-only (identity linking): auth-identity relink decisions
+  AUTH: "auth",
 } as const;
 
 export const AUDIT_STATUS = {
@@ -43,7 +45,7 @@ export const AUDIT_STATUS = {
 export const AUDIT_SOURCE = {
   APP: "app",
   API: "api",
-  // Cloud-only (partner layer): actions performed via the Partner API/portal.
+  // EE-only (partner layer): actions performed via the Partner API/portal.
   PARTNER: "partner",
 } as const;
 
@@ -126,4 +128,20 @@ export const withAudit = async <T>(
   if (params.organizationId)
     invalidateGatewayCacheForOrg(params.organizationId);
   return result;
+};
+
+/**
+ * Record a single audit event directly (status defaults to SUCCESS).
+ *
+ * Use when the audited state change is conditional or has already happened, so
+ * the `withAudit` HOF — which always logs and flushes the gateway cache around a
+ * wrapped call — doesn't fit. Example: auditing an API key only when it was
+ * actually minted during a read (`ensureApiKey`). Like `logAuditEvent`, it never
+ * throws — a failed audit write must not break the parent operation.
+ */
+export const recordAuditEvent = async (params: AuditParams): Promise<void> => {
+  await logAuditEvent({
+    ...params,
+    status: params.status ?? AUDIT_STATUS.SUCCESS,
+  });
 };

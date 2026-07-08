@@ -31,13 +31,21 @@ export default async function ConnectPage({ params, searchParams }: Props) {
       defaults.length > 0 && defaults.every((envVar) => !!process.env[envVar]);
   }
 
-  // Check if user has custom AppConfig
+  // Check if user has custom AppConfig (org-scoped when the popup carries an
+  // orgId — the org connect flow resolves org-level credentials).
   let hasAppConfig = false;
   try {
-    hasAppConfig = await checkAppConfigExists(provider);
+    hasAppConfig = await checkAppConfigExists(provider, orgId);
   } catch {
     // Auth may not be resolved; treat as false
   }
+
+  // An app may offer an API-key alternate alongside its primary OAuth flow.
+  const apiKeyMethod = app.additionalMethods?.find((m) => m.type === "api_key");
+  const apiKeyFields =
+    apiKeyMethod && apiKeyMethod.type === "api_key"
+      ? apiKeyMethod.fields
+      : undefined;
 
   return (
     <ConnectFlow
@@ -57,6 +65,7 @@ export default async function ConnectPage({ params, searchParams }: Props) {
           app.connectionMethod.type === "credentials_import"
             ? app.connectionMethod.fileImport
             : undefined,
+        apiKeyFields,
       }}
       hasDefaults={hasEnvDefaults || hasAppConfig}
       status={status === "success" || status === "error" ? status : undefined}

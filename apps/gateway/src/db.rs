@@ -40,7 +40,7 @@ pub(crate) struct SecretRow {
     /// partner-tier credential by its actual scope — regardless of how the secret
     /// was resolved (inherited vs. selectively assigned to an agent). Read only by
     /// the cloud budget module (`BudgetSecret` impl), hence the cfg'd allow.
-    #[cfg_attr(not(feature = "cloud"), allow(dead_code))]
+    #[cfg_attr(not(edition_cloud), allow(dead_code))]
     pub scope: String,
     #[sqlx(rename = "type")]
     pub type_: String,
@@ -54,7 +54,6 @@ pub(crate) struct SecretRow {
     pub host_pattern: String,
     pub path_pattern: Option<String>,
     pub injection_config: Option<serde_json::Value>,
-    pub is_platform: bool,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -87,7 +86,11 @@ pub(crate) struct ApiKeyRow {
 }
 
 /// An org-scoped API key row from the `api_keys` table.
-#[cfg(feature = "cloud")]
+///
+/// EE-only (cloud + onprem): org keys are mintable only via the cloud UI and
+/// the onprem bootstrap, and only those editions' auth forks consult them —
+/// gating them out keeps org-key auth out of the OSS build entirely.
+#[cfg(not(edition_oss))]
 #[derive(Debug, FromRow)]
 pub(crate) struct OrgApiKeyRow {
     pub user_id: String,
@@ -136,7 +139,7 @@ pub(crate) async fn find_user_by_external_auth_id(
 /// default project — it requires an explicit `X-Project-Id` and validates it
 /// with [`user_can_access_project`]. Gating this `not(cloud)` makes that a
 /// compile-time guarantee (a cloud caller fails to build).
-#[cfg(not(feature = "cloud"))]
+#[cfg(not(edition_cloud))]
 pub(crate) async fn find_default_project_id_by_user(
     pool: &PgPool,
     user_id: &str,
@@ -169,7 +172,7 @@ pub(crate) async fn find_api_key(pool: &PgPool, key: &str) -> Result<Option<ApiK
 }
 
 /// Look up an org-scoped API key (`oc_org_...`) and return its user_id and organization_id.
-#[cfg(feature = "cloud")]
+#[cfg(not(edition_oss))]
 pub(crate) async fn find_org_api_key(pool: &PgPool, key: &str) -> Result<Option<OrgApiKeyRow>> {
     sqlx::query_as::<_, OrgApiKeyRow>(
         r#"SELECT user_id, organization_id
@@ -184,7 +187,7 @@ pub(crate) async fn find_org_api_key(pool: &PgPool, key: &str) -> Result<Option<
 }
 
 /// Verify that a project belongs to the given organization.
-#[cfg(feature = "cloud")]
+#[cfg(not(edition_oss))]
 pub(crate) async fn verify_project_in_org(
     pool: &PgPool,
     project_id: &str,
@@ -203,7 +206,7 @@ pub(crate) async fn verify_project_in_org(
 /// Verify that a user may access a project — i.e. the project belongs to an
 /// organization the user is a member of. Scopes cloud browser (Cognito)
 /// requests to the `X-Project-Id` they specify instead of a default project.
-#[cfg(feature = "cloud")]
+#[cfg(edition_cloud)]
 pub(crate) async fn user_can_access_project(
     pool: &PgPool,
     user_id: &str,
@@ -221,6 +224,55 @@ pub(crate) async fn user_can_access_project(
     .fetch_optional(pool)
     .await
     .context("verifying user has access to project")?;
+    Ok(row.is_some())
+}
+
+/// Whether a user may manage a project — its creator, or an admin/owner of the
+/// project's organization. Re-checked on every API-key auth so a key stops
+/// working once its user loses access (e.g. demotion or removal). Cloud-only.
+#[cfg(edition_cloud)]
+pub(crate) async fn user_can_manage_project(
+    pool: &PgPool,
+    user_id: &str,
+    project_id: &str,
+) -> Result<bool> {
+    let row: Option<(String,)> = sqlx::query_as(
+        r#"SELECT p.id
+           FROM projects p
+           LEFT JOIN organization_members om
+             ON om.organization_id = p.organization_id AND om.user_id = $1
+           WHERE p.id = $2
+             AND (p.created_by_user_id = $1 OR om.role IN ('owner', 'admin'))
+           LIMIT 1"#,
+    )
+    .bind(user_id)
+    .bind(project_id)
+    .fetch_optional(pool)
+    .await
+    .context("verifying user can manage project")?;
+    Ok(row.is_some())
+}
+
+/// Whether a user is an admin or owner of an organization. Re-checked on every
+/// org-scoped API-key auth so the key stops working after a demotion.
+#[cfg(not(edition_oss))]
+pub(crate) async fn user_is_org_admin(
+    pool: &PgPool,
+    user_id: &str,
+    organization_id: &str,
+) -> Result<bool> {
+    let row: Option<(String,)> = sqlx::query_as(
+        r#"SELECT user_id
+           FROM organization_members
+           WHERE user_id = $1 AND organization_id = $2
+             AND role IN ('owner', 'admin')
+           LIMIT 1"#,
+    )
+    .bind(user_id)
+    .bind(organization_id)
+    .fetch_optional(pool)
+    .await
+    .context("verifying user is org admin")?;
     Ok(row.is_some())
 }
 
@@ -263,7 +315,7 @@ pub(crate) async fn find_secrets_by_project(
     project_id: &str,
 ) -> Result<Vec<SecretRow>> {
     sqlx::query_as::<_, SecretRow>(
-        r#"SELECT id, scope, type, value_source, encrypted_value, op_ref, host_pattern, path_pattern, injection_config, is_platform, metadata FROM secrets WHERE project_id = $1"#,
+        r#"SELECT id, scope, type, value_source, encrypted_value, op_ref, host_pattern, path_pattern, injection_config, metadata FROM secrets WHERE project_id = $1"#,
     )
     .bind(project_id)
     .fetch_all(pool)
@@ -274,7 +326,7 @@ pub(crate) async fn find_secrets_by_project(
 /// Find secrets assigned to a specific agent (selective mode).
 pub(crate) async fn find_secrets_by_agent(pool: &PgPool, agent_id: &str) -> Result<Vec<SecretRow>> {
     sqlx::query_as::<_, SecretRow>(
-        r#"SELECT s.id, s.scope, s.type, s.value_source, s.encrypted_value, s.op_ref, s.host_pattern, s.path_pattern, s.injection_config, s.is_platform, s.metadata
+        r#"SELECT s.id, s.scope, s.type, s.value_source, s.encrypted_value, s.op_ref, s.host_pattern, s.path_pattern, s.injection_config, s.metadata
            FROM secrets s
            INNER JOIN agent_secrets as_ ON s.id = as_.secret_id
            WHERE as_.agent_id = $1"#,
@@ -291,7 +343,7 @@ pub(crate) async fn find_secrets_by_org(
     organization_id: &str,
 ) -> Result<Vec<SecretRow>> {
     sqlx::query_as::<_, SecretRow>(
-        r#"SELECT id, scope, type, value_source, encrypted_value, op_ref, host_pattern, path_pattern, injection_config, is_platform, metadata
+        r#"SELECT id, scope, type, value_source, encrypted_value, op_ref, host_pattern, path_pattern, injection_config, metadata
            FROM secrets
            WHERE organization_id = $1 AND scope = 'organization'"#,
     )
@@ -377,6 +429,61 @@ pub(crate) async fn find_app_config(
     .fetch_optional(pool)
     .await
     .context("querying app_config by project_id + provider")
+}
+
+/// Find an enabled org-level BYOC app config for an organization + provider.
+///
+/// EE-only (cloud + onprem): org-level app configs are writable only through
+/// the EE org surface (`POST /v1/org/apps/:provider/config`); OSS has no way
+/// to create them, so its build carries no org lookup.
+#[cfg(not(edition_oss))]
+pub(crate) async fn find_app_config_by_org(
+    pool: &PgPool,
+    organization_id: &str,
+    provider: &str,
+) -> Result<Option<AppConfigRow>> {
+    sqlx::query_as::<_, AppConfigRow>(
+        r#"SELECT settings, credentials FROM app_configs
+           WHERE organization_id = $1 AND provider = $2
+             AND scope = 'organization' AND enabled = true
+           LIMIT 1"#,
+    )
+    .bind(organization_id)
+    .bind(provider)
+    .fetch_optional(pool)
+    .await
+    .context("querying app_config by organization_id + provider")
+}
+
+/// Find the enabled BYOC app config that minted a specific connection, via the
+/// provenance link `app_connections.app_config_id`.
+///
+/// A connection's OAuth refresh token is bound to the client that minted it, so
+/// refresh must reuse exactly that config — even when the resolver's tier order
+/// (project → org) would now select a different row. Returns `None` when the
+/// link is null (env-minted, a no-config method, or pre-dating the link), or the
+/// config has since been disabled/removed, or (defence-in-depth) points at a
+/// different provider. The `provider` guard keeps a mislinked FK from ever
+/// handing one provider's client secret to another provider's token endpoint;
+/// every writer links same-provider by construction, so it only ever excludes
+/// corrupt data. Shared across editions: project-tier links exist in OSS; org
+/// rows simply never exist there.
+pub(crate) async fn find_app_config_by_connection(
+    pool: &PgPool,
+    connection_id: &str,
+    provider: &str,
+) -> Result<Option<AppConfigRow>> {
+    sqlx::query_as::<_, AppConfigRow>(
+        r#"SELECT ac.settings, ac.credentials FROM app_configs ac
+           JOIN app_connections c ON c.app_config_id = ac.id
+           WHERE c.id = $1 AND ac.provider = $2 AND ac.enabled = true
+           LIMIT 1"#,
+    )
+    .bind(connection_id)
+    .bind(provider)
+    .fetch_optional(pool)
+    .await
+    .context("querying app_config by connection provenance link")
 }
 
 // ── App connection queries ─────────────────────────────────────────────
