@@ -814,6 +814,24 @@ static APP_PROVIDERS: &[AppProvider] = &[
         body_transform: None,
     },
     AppProvider {
+        provider: "clerk",
+        display_name: "Clerk",
+        host_rules: &[HostRule {
+            pattern: HostPattern::Exact("api.clerk.com"),
+            path_prefix: Some("/v1/"),
+            strategy: AuthStrategy::Bearer,
+            intercept: false,
+            credential_host_field: None,
+        }],
+        refresh: None,
+        metadata_headers: &[],
+        credential_headers: &[],
+        credential_params: &[],
+        host_rewrite: None,
+        finalizer: None,
+        body_transform: None,
+    },
+    AppProvider {
         provider: "cloudflare",
         display_name: "Cloudflare",
         host_rules: &[HostRule {
@@ -2399,6 +2417,40 @@ mod tests {
                 value: "Bearer re_test123".to_string(),
             }
         );
+    }
+
+    // ── Clerk ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn providers_for_clerk_host() {
+        assert_eq!(providers_for_host("api.clerk.com"), vec!["clerk"]);
+    }
+
+    #[test]
+    fn clerk_backend_api_uses_bearer() {
+        let injections = build_app_injections("clerk", "api.clerk.com", "sk_test_123");
+        assert_eq!(injections.len(), 1);
+        assert_eq!(
+            injections[0],
+            Injection::SetHeader {
+                name: "authorization".to_string(),
+                value: "Bearer sk_test_123".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn clerk_auth_is_limited_to_v1_api_paths() {
+        assert!(provider_matches_host_and_path(
+            "clerk",
+            "api.clerk.com",
+            "/v1/users"
+        ));
+        assert!(!provider_matches_host_and_path(
+            "clerk",
+            "api.clerk.com",
+            "/health"
+        ));
     }
 
     // ── Cloudflare ─────────────────────────────────────────────────────

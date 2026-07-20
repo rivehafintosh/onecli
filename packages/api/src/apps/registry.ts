@@ -29,6 +29,7 @@ import { todoist } from "./todoist";
 import { vertexAi } from "./vertex-ai";
 import { youtube } from "./youtube";
 import { cloudflare } from "./cloudflare";
+import { clerk } from "./clerk";
 import { flyio } from "./flyio";
 import { dropbox } from "./dropbox";
 import { supabase } from "./supabase";
@@ -68,6 +69,7 @@ const staticApps: AppDefinition[] = [
   vertexAi,
   todoist,
   cloudflare,
+  clerk,
   flyio,
   dropbox,
   aws,

@@ -17,6 +17,7 @@ export {
 import type { AppPermissionDefinition } from "./types";
 import { awsPermissions } from "./aws";
 import { cloudflarePermissions } from "./cloudflare";
+import { clerkPermissions } from "./clerk";
 import { confluencePermissions } from "./confluence";
 import { dockerPermissions } from "./docker";
 import { flyioPermissions } from "./flyio";
@@ -70,6 +71,7 @@ export const registerAppPermission = register;
 
 register(awsPermissions);
 register(cloudflarePermissions);
+register(clerkPermissions);
 register(gmailPermissions);
 register(githubPermissions);
 register(githubAppPermissions);
