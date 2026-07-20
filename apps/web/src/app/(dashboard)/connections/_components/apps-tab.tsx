@@ -381,8 +381,7 @@ export const AppsTab = ({
             const isLocked =
               !app.available ||
               (app.teamOnly === true &&
-                plan !== "team" &&
-                plan !== "enterprise");
+                !["team", "scale", "enterprise"].includes(plan ?? ""));
             return (
               <AppRow
                 key={app.id}
