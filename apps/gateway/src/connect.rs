@@ -91,7 +91,6 @@ pub(crate) struct ConnectResponse {
     pub agent_id: Option<String>,
     pub agent_name: Option<String>,
     pub agent_identifier: Option<String>,
-    pub secret_mode: Option<String>,
     /// True when the project has credentials (secrets or app connections) for
     /// this host but the agent can't access them (selective mode). Used to show
     /// a more helpful error ("grant access") instead of "connect the app".
@@ -385,7 +384,6 @@ impl PolicyEngine {
             agent_id: Some(agent.id.clone()),
             agent_name: Some(agent.name.clone()),
             agent_identifier: agent.identifier.clone(),
-            secret_mode: Some(agent.secret_mode.clone()),
             access_restricted,
             plan,
             claim_token,
@@ -588,7 +586,7 @@ impl PolicyEngine {
         hostname: &str,
         selection: &db::InjectSelection,
     ) -> Result<Vec<db::AppConnectionRow>, ConnectError> {
-        let providers = apps::providers_for_connection_host(hostname);
+        let providers = apps::providers_for_host(hostname);
         if providers.is_empty() {
             debug!(host = %hostname, "app_connections: no provider for host");
             return Ok(vec![]);
@@ -1187,7 +1185,7 @@ impl PolicyEngine {
         }
 
         // Check 2: project or org has app connections for this host
-        let providers = apps::providers_for_connection_host(hostname);
+        let providers = apps::providers_for_host(hostname);
         if providers.is_empty() {
             return false;
         }
@@ -1329,7 +1327,6 @@ impl PolicyEngine {
                             refresh_token,
                             byoc_id,
                             byoc_secret,
-                            creds.get("token_url").and_then(|v| v.as_str()),
                         )
                         .await
                         {
@@ -1878,7 +1875,6 @@ mod tests {
             agent_id: None,
             agent_name: None,
             agent_identifier: None,
-            secret_mode: None,
             access_restricted: false,
             plan: "pro".to_string(),
             claim_token: None,
@@ -1925,7 +1921,6 @@ mod tests {
             agent_id: Some("agent_1".to_string()),
             agent_name: Some("Test".to_string()),
             agent_identifier: None,
-            secret_mode: Some("all".to_string()),
             access_restricted: false,
             plan: "pro".to_string(),
             claim_token: None,
@@ -1968,7 +1963,6 @@ mod tests {
             agent_id: Some("agent_selective".to_string()),
             agent_name: Some("Selective Agent".to_string()),
             agent_identifier: None,
-            secret_mode: Some("selective".to_string()),
             access_restricted: true,
             plan: "pro".to_string(),
             claim_token: None,

@@ -91,14 +91,6 @@ pub(crate) struct VaultConnectionRow {
     pub connection_data: Option<serde_json::Value>,
 }
 
-/// A vault mapping assignment row from the `agent_vault_secrets` table.
-#[derive(Debug, Clone, FromRow)]
-pub(crate) struct AgentVaultSecretRow {
-    pub hostname: String,
-    pub path: String,
-    pub field: String,
-}
-
 // ── Queries ─────────────────────────────────────────────────────────────
 
 /// Look up a user by their external auth ID (e.g. OAuth `sub` claim or "local-admin").
@@ -844,26 +836,6 @@ pub(crate) async fn find_vault_connection(
     .fetch_optional(pool)
     .await
     .context("querying vault_connection by project_id + provider")
-}
-
-/// Find vault mapping assignments for an agent, provider, and host.
-pub(crate) async fn find_agent_vault_secrets_by_provider_host(
-    pool: &PgPool,
-    agent_id: &str,
-    provider: &str,
-    hostname: &str,
-) -> Result<Vec<AgentVaultSecretRow>> {
-    sqlx::query_as::<_, AgentVaultSecretRow>(
-        r#"SELECT hostname, path, field
-           FROM agent_vault_secrets
-           WHERE agent_id = $1 AND provider = $2 AND lower(hostname) = lower($3)"#,
-    )
-    .bind(agent_id)
-    .bind(provider)
-    .bind(hostname)
-    .fetch_all(pool)
-    .await
-    .context("querying agent_vault_secrets by provider + host")
 }
 
 /// Upsert a vault connection (insert or update on project_id + provider conflict).

@@ -788,37 +788,29 @@ async fn handle_connect(
     // Resolve at CONNECT time for the intercept decision and agent identity.
     // DB injection/policy rules are NOT frozen here — they're re-resolved
     // per request inside the MITM tunnel from cache (see mitm.rs).
-    let (
-        mut intercept,
-        project_id,
-        organization_id,
-        agent_id,
-        agent_name,
-        agent_identifier,
-        secret_mode,
-    ) = if let Some(ref token) = agent_token {
-        match connect::resolve(token, &hostname, &state.policy_engine, &*state.cache).await {
-            Ok(resp) => (
-                resp.intercept,
-                resp.project_id,
-                resp.organization_id,
-                resp.agent_id,
-                resp.agent_name,
-                resp.agent_identifier,
-                resp.secret_mode,
-            ),
-            Err(ConnectError::InvalidToken) => {
-                warn!(peer = %peer_addr, host = %host, "CONNECT rejected: invalid agent token");
-                return Ok(response::proxy_auth_required());
+    let (mut intercept, project_id, organization_id, agent_id, agent_name, agent_identifier) =
+        if let Some(ref token) = agent_token {
+            match connect::resolve(token, &hostname, &state.policy_engine, &*state.cache).await {
+                Ok(resp) => (
+                    resp.intercept,
+                    resp.project_id,
+                    resp.organization_id,
+                    resp.agent_id,
+                    resp.agent_name,
+                    resp.agent_identifier,
+                ),
+                Err(ConnectError::InvalidToken) => {
+                    warn!(peer = %peer_addr, host = %host, "CONNECT rejected: invalid agent token");
+                    return Ok(response::proxy_auth_required());
+                }
+                Err(ConnectError::Internal(e)) => {
+                    warn!(peer = %peer_addr, host = %host, error = %e, "CONNECT rejected: internal error");
+                    return Ok(response::bad_gateway());
+                }
             }
-            Err(ConnectError::Internal(e)) => {
-                warn!(peer = %peer_addr, host = %host, error = %e, "CONNECT rejected: internal error");
-                return Ok(response::bad_gateway());
-            }
-        }
-    } else {
-        (false, None, None, None, None, None, None)
-    };
+        } else {
+            (false, None, None, None, None, None)
+        };
 
     // Vault fallback: resolved at CONNECT time and passed to mitm as a frozen
     // fallback. Vault queries are expensive (network calls to Bitwarden), so
@@ -827,24 +819,17 @@ async fn handle_connect(
     let mut vault_injection_rules = vec![];
     if !intercept {
         if let Some(ref aid) = project_id {
-            let creds = state
-                .vault_service
-                .request_credentials(
-                    aid,
-                    &hostname,
-                    agent_id.as_deref(),
-                    secret_mode.as_deref() == Some(connect::SECRET_MODE_SELECTIVE),
-                )
-                .await;
-            let vault_rules = inject::vault_credentials_to_rules(&hostname, &creds);
-            if !vault_rules.is_empty() {
-                intercept = true;
-                vault_injection_rules = vault_rules;
-                info!(
-                    host = %hostname,
-                    project_id = %aid,
-                    "using vault credential"
-                );
+            if let Some(cred) = state.vault_service.request_credential(aid, &hostname).await {
+                let vault_rules = inject::vault_credential_to_rules(&hostname, &cred);
+                if !vault_rules.is_empty() {
+                    intercept = true;
+                    vault_injection_rules = vault_rules;
+                    info!(
+                        host = %hostname,
+                        project_id = %aid,
+                        "using vault credential"
+                    );
+                }
             }
         }
     }
@@ -1078,19 +1063,12 @@ async fn handle_http_proxy(
     // land on the same host alongside it.
     if resolved.injection_rules.is_empty() && pending_injections.is_empty() {
         if let Some(ref aid) = resolved.project_id {
-            let creds = state
-                .vault_service
-                .request_credentials(
-                    aid,
-                    &hostname,
-                    resolved.agent_id.as_deref(),
-                    resolved.secret_mode.as_deref() == Some(connect::SECRET_MODE_SELECTIVE),
-                )
-                .await;
-            let vault_rules = inject::vault_credentials_to_rules(&hostname, &creds);
-            if !vault_rules.is_empty() {
-                resolved.injection_rules = vault_rules;
-                info!(host = %hostname, project_id = %aid, "http_proxy: using vault credential");
+            if let Some(cred) = state.vault_service.request_credential(aid, &hostname).await {
+                let vault_rules = inject::vault_credential_to_rules(&hostname, &cred);
+                if !vault_rules.is_empty() {
+                    resolved.injection_rules = vault_rules;
+                    info!(host = %hostname, project_id = %aid, "http_proxy: using vault credential");
+                }
             }
         }
     }
