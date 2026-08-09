@@ -468,7 +468,6 @@ impl VaultProvider for BitwardenVaultProvider {
                 return cached.data.as_ref().map(|c| VaultCredential {
                     username: c.username.clone(),
                     password: c.password.clone(),
-                    path_pattern: None,
                 });
             }
         }
@@ -588,7 +587,6 @@ impl VaultProvider for BitwardenVaultProvider {
         cred.map(|c| VaultCredential {
             username: c.username,
             password: c.password,
-            path_pattern: None,
         })
     }
 
