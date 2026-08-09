@@ -144,7 +144,6 @@ use crate::ca::CertificateAuthority;
 use crate::connect::PolicyEngine;
 use crate::gateway::GatewayServer;
 use crate::vault::bitwarden::{BitwardenConfig, BitwardenVaultProvider};
-use crate::vault::hashicorp::HashicorpVaultProvider;
 use crate::vault::onepassword::OnePasswordVaultProvider;
 use crate::vault::{VaultProvider, VaultService};
 
@@ -281,7 +280,7 @@ async fn main() -> Result<()> {
         onepassword: Arc::clone(&onepassword),
     });
 
-    // Initialize vault service with Bitwarden, 1Password, and HashiCorp providers.
+    // Initialize vault service with Bitwarden + 1Password providers.
     let proxy_url = std::env::var("BITWARDEN_PROXY_URL")
         .unwrap_or_else(|_| "wss://ap.lesspassword.dev".to_string());
     let bitwarden = BitwardenVaultProvider::new(
@@ -289,14 +288,7 @@ async fn main() -> Result<()> {
         policy_engine.pool.clone(),
         Arc::clone(&crypto),
     );
-    let providers: Vec<Arc<dyn VaultProvider>> = vec![
-        Arc::new(bitwarden),
-        onepassword,
-        Arc::new(HashicorpVaultProvider::new(
-            policy_engine.pool.clone(),
-            Arc::clone(&crypto),
-        )),
-    ];
+    let providers: Vec<Arc<dyn VaultProvider>> = vec![Arc::new(bitwarden), onepassword];
     let vault_service = Arc::new(VaultService::new(providers, policy_engine.pool.clone()));
     info!("vault service initialized");
 

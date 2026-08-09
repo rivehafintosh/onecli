@@ -527,8 +527,7 @@ fn segment_matches(segment: &str, pattern: &str) -> bool {
 // ── Vault credential → injection rules ──────────────────────────────
 
 /// Convert a vault credential to injection rules for a given hostname.
-/// Anthropic API keys use `x-api-key`; Anthropic OAuth and everything else use
-/// `Authorization: Bearer`.
+/// Anthropic uses `x-api-key`, everything else defaults to `Authorization: Bearer`.
 pub(crate) fn vault_credential_to_rules(
     hostname: &str,
     cred: &VaultCredential,
@@ -538,17 +537,8 @@ pub(crate) fn vault_credential_to_rules(
         _ => return vec![],
     };
 
-    let injections = match (hostname, password.starts_with("sk-ant-oat")) {
-        ("api.anthropic.com", true) => vec![
-            Injection::SetHeader {
-                name: "authorization".to_string(),
-                value: format!("Bearer {password}"),
-            },
-            Injection::RemoveHeader {
-                name: "x-api-key".to_string(),
-            },
-        ],
-        ("api.anthropic.com", false) => vec![
+    let injections = match hostname {
+        "api.anthropic.com" => vec![
             Injection::SetHeader {
                 name: "x-api-key".to_string(),
                 value: password.to_string(),
@@ -564,19 +554,9 @@ pub(crate) fn vault_credential_to_rules(
     };
 
     vec![InjectionRule {
-        path_pattern: cred.path_pattern.clone().unwrap_or_else(|| "*".to_string()),
+        path_pattern: "*".to_string(),
         injections,
     }]
-}
-
-pub(crate) fn vault_credentials_to_rules(
-    hostname: &str,
-    credentials: &[VaultCredential],
-) -> Vec<InjectionRule> {
-    credentials
-        .iter()
-        .flat_map(|cred| vault_credential_to_rules(hostname, cred))
-        .collect()
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -1280,46 +1260,25 @@ mod tests {
         VaultCredential {
             username: None,
             password: password.map(|s| s.to_string()),
-            path_pattern: None,
         }
     }
 
     #[test]
-    fn vault_cred_anthropic_api_key_uses_x_api_key() {
-        let rules = vault_credential_to_rules("api.anthropic.com", &cred(Some("sk-ant-api03-123")));
+    fn vault_cred_anthropic_uses_x_api_key() {
+        let rules = vault_credential_to_rules("api.anthropic.com", &cred(Some("sk-ant-123")));
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].injections.len(), 2);
         assert_eq!(
             rules[0].injections[0],
             Injection::SetHeader {
                 name: "x-api-key".to_string(),
-                value: "sk-ant-api03-123".to_string(),
+                value: "sk-ant-123".to_string(),
             }
         );
         assert_eq!(
             rules[0].injections[1],
             Injection::RemoveHeader {
                 name: "authorization".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn vault_cred_anthropic_oauth_sets_authorization() {
-        let rules = vault_credential_to_rules("api.anthropic.com", &cred(Some("sk-ant-oat-123")));
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].injections.len(), 2);
-        assert_eq!(
-            rules[0].injections[0],
-            Injection::SetHeader {
-                name: "authorization".to_string(),
-                value: "Bearer sk-ant-oat-123".to_string(),
-            }
-        );
-        assert_eq!(
-            rules[0].injections[1],
-            Injection::RemoveHeader {
-                name: "x-api-key".to_string(),
             }
         );
     }

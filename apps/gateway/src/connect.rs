@@ -586,7 +586,7 @@ impl PolicyEngine {
         hostname: &str,
         selection: &db::InjectSelection,
     ) -> Result<Vec<db::AppConnectionRow>, ConnectError> {
-        let providers = apps::providers_for_connection_host(hostname);
+        let providers = apps::providers_for_host(hostname);
         if providers.is_empty() {
             debug!(host = %hostname, "app_connections: no provider for host");
             return Ok(vec![]);
@@ -1185,7 +1185,7 @@ impl PolicyEngine {
         }
 
         // Check 2: project or org has app connections for this host
-        let providers = apps::providers_for_connection_host(hostname);
+        let providers = apps::providers_for_host(hostname);
         if providers.is_empty() {
             return false;
         }
@@ -1327,7 +1327,6 @@ impl PolicyEngine {
                             refresh_token,
                             byoc_id,
                             byoc_secret,
-                            creds.get("token_url").and_then(|v| v.as_str()),
                         )
                         .await
                         {
