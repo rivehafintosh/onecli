@@ -50,6 +50,10 @@ pub(crate) enum HostPattern {
     /// Match any hostname ending with the suffix, strictly longer than the suffix
     /// (e.g., `"-aiplatform.googleapis.com"` matches `"us-central1-aiplatform.googleapis.com"`).
     Suffix(&'static str),
+    /// Match a connection-defined host. Dynamic rules are never returned by
+    /// general provider discovery; the exact stored credential host gates
+    /// injection after the connection is decrypted.
+    Any,
 }
 
 /// A host pattern and its injection strategy for an app provider.
@@ -76,12 +80,20 @@ impl HostPattern {
         match self {
             Self::Exact(host) => *host == hostname,
             Self::Suffix(suffix) => hostname.ends_with(suffix) && hostname.len() > suffix.len(),
+            Self::Any => false,
         }
     }
 }
 
 fn host_rule_matches(rule: &HostRule, hostname: &str) -> bool {
     rule.pattern.matches(hostname)
+}
+
+fn connection_host_rule_matches(rule: &HostRule, hostname: &str) -> bool {
+    match rule.pattern {
+        HostPattern::Any => !hostname.is_empty(),
+        _ => host_rule_matches(rule, hostname),
+    }
 }
 
 /// Body format for token refresh requests.
@@ -1086,6 +1098,27 @@ static APP_PROVIDERS: &[AppProvider] = &[
         body_transform: None,
     },
     AppProvider {
+        provider: "n8n",
+        display_name: "n8n",
+        host_rules: &[HostRule {
+            pattern: HostPattern::Any,
+            path_prefix: None,
+            strategy: AuthStrategy::None,
+            intercept: false,
+            credential_host_field: Some("instance_host"),
+        }],
+        refresh: None,
+        metadata_headers: &[],
+        credential_headers: &[CredentialHeader {
+            credential_field: "apiKey",
+            header_name: "x-n8n-api-key",
+        }],
+        credential_params: &[],
+        host_rewrite: None,
+        finalizer: None,
+        body_transform: None,
+    },
+    AppProvider {
         provider: "jfrog-artifactory",
         display_name: "JFrog Artifactory",
         // Wildcard suffix: JFrog SaaS hosts are per-customer (`<name>.jfrog.io`).
@@ -1206,6 +1239,7 @@ pub(crate) fn host_has_path_scoped_providers(hostname: &str) -> bool {
 /// Given a hostname, return all provider names that have at least one host rule
 /// matching it. Multiple providers can share the same host with different path
 /// prefixes (e.g., Gmail on `/gmail/` and Calendar on `/calendar/`).
+#[cfg(test)]
 pub(crate) fn providers_for_host(hostname: &str) -> Vec<&'static str> {
     let mut providers = Vec::new();
     for provider in all_providers() {
@@ -1214,6 +1248,22 @@ pub(crate) fn providers_for_host(hostname: &str) -> Vec<&'static str> {
                 providers.push(provider.provider);
                 break;
             }
+        }
+    }
+    providers
+}
+
+/// Providers that may serve a saved connection for `hostname`, including
+/// exact-host-gated dynamic providers such as self-hosted n8n.
+pub(crate) fn providers_for_connection_host(hostname: &str) -> Vec<&'static str> {
+    let mut providers = Vec::new();
+    for provider in all_providers() {
+        if provider
+            .host_rules
+            .iter()
+            .any(|rule| connection_host_rule_matches(rule, hostname))
+        {
+            providers.push(provider.provider);
         }
     }
     providers
@@ -1314,7 +1364,7 @@ pub(crate) fn build_app_injection_rules(
 
     app.host_rules
         .iter()
-        .filter(|r| host_rule_matches(r, hostname))
+        .filter(|r| connection_host_rule_matches(r, hostname))
         .map(|rule| {
             let pattern = rule
                 .path_prefix
@@ -1346,7 +1396,7 @@ pub(crate) fn provider_matches_host_and_path(provider: &str, hostname: &str, pat
         .find(|p| p.provider == provider)
         .is_some_and(|app| {
             app.host_rules.iter().any(|r| {
-                host_rule_matches(r, hostname)
+                connection_host_rule_matches(r, hostname)
                     && r.path_prefix.is_none_or(|pfx| path.starts_with(pfx))
             })
         })
@@ -1392,6 +1442,7 @@ pub(crate) fn injection_surface_samples() -> Vec<(&'static str, String, String)>
             let host = match r.pattern {
                 HostPattern::Exact(h) => h.to_string(),
                 HostPattern::Suffix(s) => format!("probe{s}"),
+                HostPattern::Any => continue,
             };
             let path = r
                 .path_prefix
@@ -1482,7 +1533,7 @@ pub(crate) fn credential_host_field(provider: &str, hostname: &str) -> Option<&'
         .and_then(|p| {
             p.host_rules
                 .iter()
-                .find(|r| host_rule_matches(r, hostname))
+                .find(|r| connection_host_rule_matches(r, hostname))
                 .and_then(|r| r.credential_host_field)
         })
 }
@@ -2970,7 +3021,7 @@ mod tests {
             for rule in provider.host_rules {
                 let host = match rule.pattern {
                     HostPattern::Exact(h) => h,
-                    HostPattern::Suffix(_) => continue, // suffix rules don't share hosts
+                    HostPattern::Suffix(_) | HostPattern::Any => continue,
                 };
                 let entry = hosts.entry(host).or_default();
                 if rule.path_prefix.is_some() {
@@ -3232,6 +3283,27 @@ mod tests {
     #[test]
     fn jfrog_has_no_refresh_config() {
         assert!(refresh_config("jfrog-artifactory").is_none());
+    }
+
+    // ── n8n ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn n8n_is_discoverable_only_for_saved_connection_resolution() {
+        assert!(providers_for_host("n8n.example.com").is_empty());
+        assert!(providers_for_connection_host("n8n.example.com").contains(&"n8n"));
+    }
+
+    #[test]
+    fn n8n_uses_exact_host_gate_and_api_key_header() {
+        assert_eq!(
+            credential_host_field("n8n", "n8n.example.com"),
+            Some("instance_host")
+        );
+        let headers = credential_headers("n8n");
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].credential_field, "apiKey");
+        assert_eq!(headers[0].header_name, "x-n8n-api-key");
+        assert!(!needs_access_token("n8n"));
     }
 
     // ── credential_host_field ─────────────────────────────────────────
