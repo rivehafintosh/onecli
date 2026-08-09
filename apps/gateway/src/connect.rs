@@ -1065,7 +1065,9 @@ impl PolicyEngine {
         // For credential-only providers (no auth rules), ensure at least one
         // catch-all rule exists so credential headers/params have somewhere to attach.
         if rules.is_empty()
-            && (!apps::credential_headers(&conn.provider).is_empty()
+            && (apps::credential_headers(&conn.provider)
+                .iter()
+                .any(|header| header.path_pattern.is_none())
                 || !apps::credential_params(&conn.provider).is_empty())
         {
             let capacity = apps::metadata_headers(&conn.provider).len()
@@ -1095,10 +1097,31 @@ impl PolicyEngine {
         if let Some(ref creds) = creds {
             for ch in apps::credential_headers(&conn.provider) {
                 if let Some(value) = creds.get(ch.credential_field).and_then(|v| v.as_str()) {
+                    let value = format!("{}{value}", ch.value_prefix);
+                    if let Some(path_pattern) = ch.path_pattern {
+                        if let Some(rule) = rules
+                            .iter_mut()
+                            .find(|rule| rule.path_pattern == path_pattern)
+                        {
+                            rule.injections.push(Injection::SetHeader {
+                                name: ch.header_name.to_string(),
+                                value,
+                            });
+                        } else {
+                            rules.push(InjectionRule {
+                                path_pattern: path_pattern.to_string(),
+                                injections: vec![Injection::SetHeader {
+                                    name: ch.header_name.to_string(),
+                                    value,
+                                }],
+                            });
+                        }
+                        continue;
+                    }
                     for rule in &mut rules {
                         rule.injections.push(Injection::SetHeader {
                             name: ch.header_name.to_string(),
-                            value: value.to_string(),
+                            value: value.clone(),
                         });
                     }
                 }

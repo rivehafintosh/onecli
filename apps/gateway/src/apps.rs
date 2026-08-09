@@ -133,6 +133,11 @@ pub(crate) struct RefreshConfig {
 pub(crate) struct CredentialHeader {
     pub(crate) credential_field: &'static str,
     pub(crate) header_name: &'static str,
+    /// Optional route scope for this credential. This is required when one
+    /// provider exposes independent authentication surfaces on the same host.
+    pub(crate) path_pattern: Option<&'static str>,
+    /// Static prefix applied to the stored value (for example `Bearer `).
+    pub(crate) value_prefix: &'static str,
 }
 
 /// Maps a credential JSON field to a URL query parameter injected on every request.
@@ -902,14 +907,20 @@ static APP_PROVIDERS: &[AppProvider] = &[
             CredentialHeader {
                 credential_field: "accessKeyId",
                 header_name: "x-onecli-aws-access-key-id",
+                path_pattern: None,
+                value_prefix: "",
             },
             CredentialHeader {
                 credential_field: "secretAccessKey",
                 header_name: "x-onecli-aws-secret-access-key",
+                path_pattern: None,
+                value_prefix: "",
             },
             CredentialHeader {
                 credential_field: "region",
                 header_name: "x-onecli-aws-region",
+                path_pattern: None,
+                value_prefix: "",
             },
         ],
         credential_params: &[],
@@ -1109,10 +1120,26 @@ static APP_PROVIDERS: &[AppProvider] = &[
         }],
         refresh: None,
         metadata_headers: &[],
-        credential_headers: &[CredentialHeader {
-            credential_field: "apiKey",
-            header_name: "x-n8n-api-key",
-        }],
+        credential_headers: &[
+            CredentialHeader {
+                credential_field: "apiKey",
+                header_name: "x-n8n-api-key",
+                path_pattern: Some("*/api/*"),
+                value_prefix: "",
+            },
+            CredentialHeader {
+                credential_field: "editorCookie",
+                header_name: "cookie",
+                path_pattern: Some("*/rest/*"),
+                value_prefix: "",
+            },
+            CredentialHeader {
+                credential_field: "mcpToken",
+                header_name: "authorization",
+                path_pattern: Some("*/mcp-server/*"),
+                value_prefix: "Bearer ",
+            },
+        ],
         credential_params: &[],
         host_rewrite: None,
         finalizer: None,
@@ -3300,9 +3327,17 @@ mod tests {
             Some("instance_host")
         );
         let headers = credential_headers("n8n");
-        assert_eq!(headers.len(), 1);
+        assert_eq!(headers.len(), 3);
         assert_eq!(headers[0].credential_field, "apiKey");
         assert_eq!(headers[0].header_name, "x-n8n-api-key");
+        assert_eq!(headers[0].path_pattern, Some("*/api/*"));
+        assert_eq!(headers[1].credential_field, "editorCookie");
+        assert_eq!(headers[1].header_name, "cookie");
+        assert_eq!(headers[1].path_pattern, Some("*/rest/*"));
+        assert_eq!(headers[2].credential_field, "mcpToken");
+        assert_eq!(headers[2].header_name, "authorization");
+        assert_eq!(headers[2].path_pattern, Some("*/mcp-server/*"));
+        assert_eq!(headers[2].value_prefix, "Bearer ");
         assert!(!needs_access_token("n8n"));
     }
 
