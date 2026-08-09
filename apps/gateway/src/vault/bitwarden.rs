@@ -439,15 +439,11 @@ impl VaultProvider for BitwardenVaultProvider {
         Ok(PairResult { display_name: None })
     }
 
-    async fn request_credential(
-        &self,
-        project_id: &str,
-        hostname: &str,
-    ) -> Option<VaultCredential> {
+    async fn request_credentials(&self, project_id: &str, hostname: &str) -> Vec<VaultCredential> {
         // Load existing session — returns None if project never paired
         let session = match self.load_session(project_id).await {
             Ok(Some(s)) => s,
-            _ => return None,
+            _ => return vec![],
         };
 
         // Touch last_used for eviction tracking
@@ -458,17 +454,24 @@ impl VaultProvider for BitwardenVaultProvider {
         // Skip if in error cooldown — avoids repeated 15s timeouts when vault is down
         if let Ok(guard) = session.error_until.lock() {
             if guard.is_some_and(|until| Instant::now() < until) {
-                return None;
+                return vec![];
             }
         }
 
         // Check credential cache first — avoids expensive lazy restore if cached
         if let Some(cached) = session.credential_cache.get(hostname) {
             if cached.expires_at > Instant::now() {
-                return cached.data.as_ref().map(|c| VaultCredential {
-                    username: c.username.clone(),
-                    password: c.password.clone(),
-                });
+                return cached
+                    .data
+                    .as_ref()
+                    .map(|c| {
+                        vec![VaultCredential {
+                            username: c.username.clone(),
+                            password: c.password.clone(),
+                            path_pattern: None,
+                        }]
+                    })
+                    .unwrap_or_default();
             }
         }
         session.credential_cache.remove(hostname);
@@ -484,7 +487,9 @@ impl VaultProvider for BitwardenVaultProvider {
                     .and_then(|cd| cd.fingerprint.as_deref())
                     .and_then(parse_fingerprint);
 
-                let fp = fingerprint?;
+                let Some(fp) = fingerprint else {
+                    return vec![];
+                };
 
                 match self.create_and_connect_client(project_id, &session).await {
                     Ok(client) => match client.load_cached_connection(fp).await {
@@ -502,7 +507,7 @@ impl VaultProvider for BitwardenVaultProvider {
                                 *eu = Some(Instant::now() + ERROR_COOLDOWN);
                             }
                             drop(client); // dropping the handle disconnects
-                            return None;
+                            return vec![];
                         }
                     },
                     Err(e) => {
@@ -514,18 +519,20 @@ impl VaultProvider for BitwardenVaultProvider {
                         if let Ok(mut eu) = session.error_until.lock() {
                             *eu = Some(Instant::now() + ERROR_COOLDOWN);
                         }
-                        return None;
+                        return vec![];
                     }
                 }
             }
         }
 
         if !session.is_ready.load(Ordering::Relaxed) {
-            return None;
+            return vec![];
         }
 
         let client_guard = session.client.lock().await;
-        let client = client_guard.as_ref()?;
+        let Some(client) = client_guard.as_ref() else {
+            return vec![];
+        };
 
         let query = CredentialQuery::Domain(hostname.to_string());
         let result = tokio::time::timeout(REQUEST_TIMEOUT, client.request_credential(&query)).await;
@@ -584,10 +591,14 @@ impl VaultProvider for BitwardenVaultProvider {
             },
         );
 
-        cred.map(|c| VaultCredential {
-            username: c.username,
-            password: c.password,
+        cred.map(|c| {
+            vec![VaultCredential {
+                username: c.username,
+                password: c.password,
+                path_pattern: None,
+            }]
         })
+        .unwrap_or_default()
     }
 
     async fn status(&self, project_id: &str) -> ProviderStatus {

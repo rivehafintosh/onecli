@@ -60,6 +60,7 @@ import { countsRoutes } from "./routes/counts";
 import { skillRoutes } from "./routes/skill";
 import { credentialStubRoutes } from "./routes/credential-stubs";
 import { migrateRoutes } from "./routes/migrate";
+import { hashicorpVaultRoutes } from "./routes/hashicorp-vault";
 import { internalRoutes } from "./routes/internal";
 import {
   authSessionRoutes,
@@ -160,6 +161,7 @@ export const createApiApp = (
   app.route("/skill", skillRoutes());
   app.route("/credential-stubs", credentialStubRoutes());
   app.route("/migrate", migrateRoutes());
+  app.route("/hashicorp-vault", hashicorpVaultRoutes());
   app.route("/internal", internalRoutes());
   // 410 Gone for the old-model paths step 10 removed. LAST, so every live route
   // above wins the first-match — these only catch what no longer exists.

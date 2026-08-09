@@ -30,6 +30,32 @@ export interface OnePasswordStatusData {
   last_error: string | null;
 }
 
+export interface HashicorpVaultStatusData {
+  address: string;
+  mount: string;
+  path_prefix: string;
+  namespace: string | null;
+  has_ca_cert: boolean;
+  kv_version: number;
+  mappings_count: number;
+  token: {
+    display_name: string | null;
+    policies: string[];
+    token_policies: string[];
+    identity_policies: string[];
+    ttl: number | null;
+    expire_time: string | null;
+    renewable: boolean | null;
+    orphan: boolean | null;
+    path: string | null;
+  } | null;
+  capabilities: Array<{
+    path: string;
+    capabilities: string[];
+  }>;
+  capabilities_error: string | null;
+}
+
 export const useVaultStatus = <T = unknown>(provider: string = "bitwarden") => {
   const [status, setStatus] = useState<VaultStatus<T> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,19 +90,14 @@ export const useVaultStatus = <T = unknown>(provider: string = "bitwarden") => {
   return { status, loading, isPaired, isReady, fetchStatus };
 };
 
-export const useVaultPair = (
+export const useVaultPairRequest = (
   fetchStatus: () => Promise<void>,
-  provider: string = "bitwarden",
+  provider: string,
 ) => {
   const [pairing, setPairing] = useState(false);
 
-  const pair = useCallback(
-    async (pskHex: string, fingerprintHex: string): Promise<boolean> => {
-      if (pskHex.length !== 64 || fingerprintHex.length !== 64) {
-        toast.error("PSK and fingerprint must each be 64 hex characters");
-        return false;
-      }
-
+  const pairWithPayload = useCallback(
+    async (payload: Record<string, unknown>): Promise<boolean> => {
       setPairing(true);
       try {
         const { headers, credentials } = await getGatewayFetchOptions();
@@ -86,10 +107,7 @@ export const useVaultPair = (
             method: "POST",
             headers: { "Content-Type": "application/json", ...headers },
             credentials,
-            body: JSON.stringify({
-              psk_hex: pskHex,
-              fingerprint_hex: fingerprintHex,
-            }),
+            body: JSON.stringify(payload),
           },
         );
 
@@ -97,11 +115,11 @@ export const useVaultPair = (
           toast.success("Vault connected successfully");
           await fetchStatus();
           return true;
-        } else {
-          const data = await resp.json();
-          toast.error(data.error ?? "Pairing failed");
-          return false;
         }
+
+        const data = await resp.json();
+        toast.error(data.error ?? "Pairing failed");
+        return false;
       } catch {
         toast.error("Failed to connect to vault");
         return false;
@@ -110,6 +128,33 @@ export const useVaultPair = (
       }
     },
     [fetchStatus, provider],
+  );
+
+  return { pairWithPayload, pairing };
+};
+
+export const useVaultPair = (
+  fetchStatus: () => Promise<void>,
+  provider: string = "bitwarden",
+) => {
+  const { pairWithPayload, pairing } = useVaultPairRequest(
+    fetchStatus,
+    provider,
+  );
+
+  const pair = useCallback(
+    async (pskHex: string, fingerprintHex: string): Promise<boolean> => {
+      if (pskHex.length !== 64 || fingerprintHex.length !== 64) {
+        toast.error("PSK and fingerprint must each be 64 hex characters");
+        return false;
+      }
+
+      return pairWithPayload({
+        psk_hex: pskHex,
+        fingerprint_hex: fingerprintHex,
+      });
+    },
+    [pairWithPayload],
   );
 
   return { pair, pairing };

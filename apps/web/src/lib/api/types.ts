@@ -50,6 +50,10 @@ export interface Secret {
   injectionConfig: unknown;
   metadata: Record<string, unknown> | null;
   scope: string | null;
+  source?: "db" | "vault";
+  vaultProvider?: string;
+  vaultPath?: string;
+  vaultField?: string;
   createdAt: string;
 }
 
