@@ -10,7 +10,7 @@ export const n8nPermissions: AppPermissionDefinition = {
         name: "All read operations",
         description: "Read resources from the n8n public API",
         hostPattern: "*",
-        pathPattern: "/api/v1/*",
+        pathPattern: "*",
         method: "GET",
       },
       tools: [
@@ -19,7 +19,7 @@ export const n8nPermissions: AppPermissionDefinition = {
           name: "List workflows",
           description: "List workflows in the n8n instance",
           hostPattern: "*",
-          pathPattern: "/api/v1/workflows",
+          pathPattern: "*/api/v1/workflows",
           method: "GET",
         },
         {
@@ -27,7 +27,7 @@ export const n8nPermissions: AppPermissionDefinition = {
           name: "Get workflow",
           description: "Get a workflow and its configuration",
           hostPattern: "*",
-          pathPattern: "/api/v1/workflows/*",
+          pathPattern: "*/api/v1/workflows/*",
           method: "GET",
         },
         {
@@ -35,7 +35,7 @@ export const n8nPermissions: AppPermissionDefinition = {
           name: "List executions",
           description: "List workflow executions",
           hostPattern: "*",
-          pathPattern: "/api/v1/executions",
+          pathPattern: "*/api/v1/executions",
           method: "GET",
         },
         {
@@ -43,7 +43,15 @@ export const n8nPermissions: AppPermissionDefinition = {
           name: "Get execution",
           description: "Get details for a workflow execution",
           hostPattern: "*",
-          pathPattern: "/api/v1/executions/*",
+          pathPattern: "*/api/v1/executions/*",
+          method: "GET",
+        },
+        {
+          id: "editor_read",
+          name: "Read editor resources",
+          description: "Read resources through the authenticated editor API",
+          hostPattern: "*",
+          pathPattern: "*/rest/*",
           method: "GET",
         },
       ],
@@ -56,7 +64,7 @@ export const n8nPermissions: AppPermissionDefinition = {
         description:
           "Create, update, run, and delete resources through the n8n public API",
         hostPattern: "*",
-        pathPattern: "/api/v1/*",
+        pathPattern: "*",
         methods: ["POST", "PUT", "PATCH", "DELETE"],
       },
       tools: [
@@ -65,7 +73,7 @@ export const n8nPermissions: AppPermissionDefinition = {
           name: "Create workflow",
           description: "Create a workflow",
           hostPattern: "*",
-          pathPattern: "/api/v1/workflows",
+          pathPattern: "*/api/v1/workflows",
           method: "POST",
         },
         {
@@ -73,7 +81,7 @@ export const n8nPermissions: AppPermissionDefinition = {
           name: "Update workflow",
           description: "Update a workflow",
           hostPattern: "*",
-          pathPattern: "/api/v1/workflows/*",
+          pathPattern: "*/api/v1/workflows/*",
           methods: ["PUT", "PATCH"],
         },
         {
@@ -81,7 +89,7 @@ export const n8nPermissions: AppPermissionDefinition = {
           name: "Activate workflow",
           description: "Activate or deactivate a workflow",
           hostPattern: "*",
-          pathPattern: "/api/v1/workflows/*",
+          pathPattern: "*/api/v1/workflows/*",
           method: "POST",
         },
         {
@@ -89,7 +97,7 @@ export const n8nPermissions: AppPermissionDefinition = {
           name: "Delete workflow",
           description: "Delete a workflow",
           hostPattern: "*",
-          pathPattern: "/api/v1/workflows/*",
+          pathPattern: "*/api/v1/workflows/*",
           method: "DELETE",
         },
         {
@@ -97,8 +105,26 @@ export const n8nPermissions: AppPermissionDefinition = {
           name: "Delete execution",
           description: "Delete execution history",
           hostPattern: "*",
-          pathPattern: "/api/v1/executions/*",
+          pathPattern: "*/api/v1/executions/*",
           method: "DELETE",
+        },
+        {
+          id: "editor_write",
+          name: "Modify editor resources",
+          description:
+            "Create, update, and delete resources through the authenticated editor API",
+          hostPattern: "*",
+          pathPattern: "*/rest/*",
+          methods: ["POST", "PUT", "PATCH", "DELETE"],
+        },
+        {
+          id: "mcp",
+          name: "Use n8n MCP tools",
+          description:
+            "Call tools exposed by the instance-level n8n MCP server",
+          hostPattern: "*",
+          pathPattern: "*/mcp-server/*",
+          methods: ["GET", "POST", "DELETE"],
         },
       ],
     },
