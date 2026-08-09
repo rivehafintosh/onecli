@@ -192,7 +192,6 @@ export const SecretsContent = ({
               badge={secret.source === "vault" ? "Vault" : undefined}
               secretActions={secretActions}
               readOnly={secret.source === "vault"}
-              badge={secret.source === "vault" ? "Vault" : undefined}
             />
           ))}
           {inheritedSecrets.map((secret) => (
