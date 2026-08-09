@@ -1018,14 +1018,20 @@ static APP_PROVIDERS: &[AppProvider] = &[
             CredentialHeader {
                 credential_field: "accessKeyId",
                 header_name: "x-onecli-aws-access-key-id",
+                path_pattern: None,
+                value_prefix: "",
             },
             CredentialHeader {
                 credential_field: "secretAccessKey",
                 header_name: "x-onecli-aws-secret-access-key",
+                path_pattern: None,
+                value_prefix: "",
             },
             CredentialHeader {
                 credential_field: "region",
                 header_name: "x-onecli-aws-region",
+                path_pattern: None,
+                value_prefix: "",
             },
         ],
         credential_params: &[],
@@ -1234,10 +1240,26 @@ static APP_PROVIDERS: &[AppProvider] = &[
         }],
         refresh: None,
         metadata_headers: &[],
-        credential_headers: &[CredentialHeader {
-            credential_field: "apiKey",
-            header_name: "x-n8n-api-key",
-        }],
+        credential_headers: &[
+            CredentialHeader {
+                credential_field: "apiKey",
+                header_name: "x-n8n-api-key",
+                path_pattern: Some("*/api/*"),
+                value_prefix: "",
+            },
+            CredentialHeader {
+                credential_field: "editorCookie",
+                header_name: "cookie",
+                path_pattern: Some("*/rest/*"),
+                value_prefix: "",
+            },
+            CredentialHeader {
+                credential_field: "mcpToken",
+                header_name: "authorization",
+                path_pattern: Some("*/mcp-server/*"),
+                value_prefix: "Bearer ",
+            },
+        ],
         credential_params: &[],
         host_rewrite: None,
         finalizer: None,
