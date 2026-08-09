@@ -50,9 +50,6 @@ pub(crate) enum HostPattern {
     /// Match any hostname ending with the suffix, strictly longer than the suffix
     /// (e.g., `"-aiplatform.googleapis.com"` matches `"us-central1-aiplatform.googleapis.com"`).
     Suffix(&'static str),
-    /// Match any hostname. Use only with `credential_host_field` so credentials
-    /// are still gated to the exact host stored on the connection.
-    Any,
 }
 
 /// A host pattern and its injection strategy for an app provider.
@@ -79,20 +76,12 @@ impl HostPattern {
         match self {
             Self::Exact(host) => *host == hostname,
             Self::Suffix(suffix) => hostname.ends_with(suffix) && hostname.len() > suffix.len(),
-            Self::Any => false,
         }
     }
 }
 
 fn host_rule_matches(rule: &HostRule, hostname: &str) -> bool {
     rule.pattern.matches(hostname)
-}
-
-fn dynamic_host_rule_matches(rule: &HostRule, hostname: &str) -> bool {
-    match rule.pattern {
-        HostPattern::Any => !hostname.is_empty(),
-        _ => host_rule_matches(rule, hostname),
-    }
 }
 
 /// Body format for token refresh requests.
@@ -814,24 +803,6 @@ static APP_PROVIDERS: &[AppProvider] = &[
         body_transform: None,
     },
     AppProvider {
-        provider: "clerk",
-        display_name: "Clerk",
-        host_rules: &[HostRule {
-            pattern: HostPattern::Exact("api.clerk.com"),
-            path_prefix: Some("/v1/"),
-            strategy: AuthStrategy::Bearer,
-            intercept: false,
-            credential_host_field: None,
-        }],
-        refresh: None,
-        metadata_headers: &[],
-        credential_headers: &[],
-        credential_params: &[],
-        host_rewrite: None,
-        finalizer: None,
-        body_transform: None,
-    },
-    AppProvider {
         provider: "cloudflare",
         display_name: "Cloudflare",
         host_rules: &[HostRule {
@@ -1099,22 +1070,13 @@ static APP_PROVIDERS: &[AppProvider] = &[
     AppProvider {
         provider: "gitlab",
         display_name: "GitLab",
-        host_rules: &[
-            HostRule {
-                pattern: HostPattern::Exact("gitlab.com"),
-                path_prefix: None,
-                strategy: AuthStrategy::Bearer,
-                intercept: false,
-                credential_host_field: Some("instance_host"),
-            },
-            HostRule {
-                pattern: HostPattern::Any,
-                path_prefix: Some("/api/v4/"),
-                strategy: AuthStrategy::Bearer,
-                intercept: false,
-                credential_host_field: Some("instance_host"),
-            },
-        ],
+        host_rules: &[HostRule {
+            pattern: HostPattern::Exact("gitlab.com"),
+            path_prefix: None,
+            strategy: AuthStrategy::Bearer,
+            intercept: false,
+            credential_host_field: None,
+        }],
         refresh: Some(&GITLAB_REFRESH),
         metadata_headers: &[],
         credential_headers: &[],
@@ -1244,7 +1206,6 @@ pub(crate) fn host_has_path_scoped_providers(hostname: &str) -> bool {
 /// Given a hostname, return all provider names that have at least one host rule
 /// matching it. Multiple providers can share the same host with different path
 /// prefixes (e.g., Gmail on `/gmail/` and Calendar on `/calendar/`).
-#[cfg(test)]
 pub(crate) fn providers_for_host(hostname: &str) -> Vec<&'static str> {
     let mut providers = Vec::new();
     for provider in all_providers() {
@@ -1258,21 +1219,39 @@ pub(crate) fn providers_for_host(hostname: &str) -> Vec<&'static str> {
     providers
 }
 
-/// Providers that may serve a concrete saved connection for `hostname`.
-///
-/// This includes dynamic host-gated providers such as self-hosted GitLab. Do
-/// not use this for general provider discovery or user-facing host hints.
-pub(crate) fn providers_for_connection_host(hostname: &str) -> Vec<&'static str> {
-    let mut providers = Vec::new();
-    for provider in all_providers() {
-        for rule in provider.host_rules {
-            if dynamic_host_rule_matches(rule, hostname) {
-                providers.push(provider.provider);
-                break;
-            }
-        }
+/// The app-availability pre-check (step 7). Returns `Some(provider)` when the
+/// request targets a known app provider that is NOT available to the connection's
+/// project — the caller refuses it. Returns `None` (allowed) when availability is
+/// unrestricted (the common case / OSS / enforcement off), when the request does
+/// not target an identifiable app provider (a raw/unknown host, or an ambiguous
+/// shared host — so the LLM host and un-managed traffic are structurally never
+/// blocked), or when the targeted provider IS available. Pure + DB-free — the
+/// available set was resolved once at connection resolution.
+#[must_use]
+pub(crate) fn app_availability_block(
+    host: &str,
+    path: &str,
+    available: &crate::db::AvailableApps,
+) -> Option<String> {
+    if !available.restricted {
+        return None;
     }
-    providers
+    // Normalize the host (strip port + lowercase) before provider identification.
+    // Registry matching is exact + port-less, so a port-bearing CONNECT authority
+    // (`gmail.googleapis.com:443`) or a mixed-case Host (`Gmail.Googleapis.Com`)
+    // would otherwise identify no provider and silently slip past the gate. This
+    // is a security gate, so it normalizes here even though provider matching
+    // elsewhere (credential injection) is case-sensitive — there a miss just
+    // fails safe (no creds → 401). Only restricted orgs reach this (the common
+    // `restricted: false` path returned above), so the allocation is off the
+    // prod/OSS hot path. (The port strip is a hard-won regression lesson.)
+    let host = crate::gateway::strip_port(host).to_ascii_lowercase();
+    match provider_for_host_and_path(&host, path) {
+        Some((provider, _)) if !available.providers.iter().any(|p| p == provider) => {
+            Some(provider.to_string())
+        }
+        _ => None,
+    }
 }
 
 /// Return the path pattern for the first matching host rule of a provider.
@@ -1300,7 +1279,7 @@ pub(crate) fn build_app_injections(provider: &str, hostname: &str, token: &str) 
     let rule = app
         .host_rules
         .iter()
-        .find(|r| dynamic_host_rule_matches(r, hostname));
+        .find(|r| host_rule_matches(r, hostname));
     let Some(rule) = rule else { return vec![] };
 
     match rule.strategy {
@@ -1335,7 +1314,7 @@ pub(crate) fn build_app_injection_rules(
 
     app.host_rules
         .iter()
-        .filter(|r| dynamic_host_rule_matches(r, hostname))
+        .filter(|r| host_rule_matches(r, hostname))
         .map(|rule| {
             let pattern = rule
                 .path_prefix
@@ -1367,10 +1346,60 @@ pub(crate) fn provider_matches_host_and_path(provider: &str, hostname: &str, pat
         .find(|p| p.provider == provider)
         .is_some_and(|app| {
             app.host_rules.iter().any(|r| {
-                dynamic_host_rule_matches(r, hostname)
+                host_rule_matches(r, hostname)
                     && r.path_prefix.is_none_or(|pfx| path.starts_with(pfx))
             })
         })
+}
+
+/// Like [`provider_matches_host_and_path`], but matches ONLY through a
+/// **path-scoped** host rule (`path_prefix` set and the request path under it) —
+/// never a bare host/suffix rule. Path-scoped rules mark a legacy/mirror
+/// endpoint of a specific API surface (e.g. Gmail's `www.googleapis.com/gmail/`
+/// mirror of `gmail.googleapis.com`), so they are safe to fold into a
+/// TOOL-scoped policy match; a broad credential-zone rule (e.g. AWS's bare
+/// `*.amazonaws.com`) is deliberately excluded so a tool-scoped rule can't bleed
+/// across sibling services on the same zone.
+#[must_use]
+pub(crate) fn provider_matches_path_scoped(provider: &str, hostname: &str, path: &str) -> bool {
+    all_providers()
+        .find(|p| p.provider == provider)
+        .is_some_and(|app| {
+            app.host_rules.iter().any(|r| {
+                host_rule_matches(r, hostname)
+                    && r.path_prefix.is_some_and(|pfx| path.starts_with(pfx))
+            })
+        })
+}
+
+/// Test helper: a representative `(provider, host, path)` for every host rule
+/// that attaches a credential to a FORWARDED request — a concrete host matching
+/// the rule's pattern and a path under its prefix. Excludes intercept rules
+/// (synthetic-token, never forwarded) and per-tenant suffix rules gated on a
+/// stored credential host — as SAMPLES only; the runtime matcher
+/// (`provider_matches_host_and_path`) intentionally still covers those hosts, so
+/// a whole-app rule governs them too (enforcement ⊇ injection, monotonic — a
+/// per-tenant/intercept host can't be sampled statically, not that it's
+/// unenforced). Backs the enforcement-⊇-injection invariant test.
+#[cfg(test)]
+pub(crate) fn injection_surface_samples() -> Vec<(&'static str, String, String)> {
+    let mut out = Vec::new();
+    for p in all_providers() {
+        for r in p.host_rules {
+            if r.intercept || r.credential_host_field.is_some() {
+                continue;
+            }
+            let host = match r.pattern {
+                HostPattern::Exact(h) => h.to_string(),
+                HostPattern::Suffix(s) => format!("probe{s}"),
+            };
+            let path = r
+                .path_prefix
+                .map_or_else(|| "/".to_string(), |pfx| format!("{pfx}probe"));
+            out.push((p.provider, host, path));
+        }
+    }
+    out
 }
 
 /// Look up the display name for a provider slug (e.g., "jira" -> "Jira").
@@ -1453,7 +1482,7 @@ pub(crate) fn credential_host_field(provider: &str, hostname: &str) -> Option<&'
         .and_then(|p| {
             p.host_rules
                 .iter()
-                .find(|r| dynamic_host_rule_matches(r, hostname))
+                .find(|r| host_rule_matches(r, hostname))
                 .and_then(|r| r.credential_host_field)
         })
 }
@@ -1510,7 +1539,6 @@ pub(crate) async fn refresh_access_token(
     refresh_token: &str,
     byoc_client_id: Option<&str>,
     byoc_client_secret: Option<&str>,
-    token_url_override: Option<&str>,
 ) -> anyhow::Result<(String, i64, Option<String>)> {
     let client_id = match byoc_client_id {
         Some(id) => id.to_string(),
@@ -1523,8 +1551,7 @@ pub(crate) async fn refresh_access_token(
             .map_err(|_| anyhow::anyhow!("{} env var not set", config.client_secret_env))?,
     };
 
-    let token_url = token_url_override.unwrap_or(config.token_url);
-    let mut req = reqwest::Client::new().post(token_url);
+    let mut req = reqwest::Client::new().post(config.token_url);
 
     if matches!(config.client_auth, ClientCredentialMethod::BasicAuth) {
         let b64 = base64::engine::general_purpose::STANDARD;
@@ -2419,40 +2446,6 @@ mod tests {
         );
     }
 
-    // ── Clerk ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn providers_for_clerk_host() {
-        assert_eq!(providers_for_host("api.clerk.com"), vec!["clerk"]);
-    }
-
-    #[test]
-    fn clerk_backend_api_uses_bearer() {
-        let injections = build_app_injections("clerk", "api.clerk.com", "sk_test_123");
-        assert_eq!(injections.len(), 1);
-        assert_eq!(
-            injections[0],
-            Injection::SetHeader {
-                name: "authorization".to_string(),
-                value: "Bearer sk_test_123".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn clerk_auth_is_limited_to_v1_api_paths() {
-        assert!(provider_matches_host_and_path(
-            "clerk",
-            "api.clerk.com",
-            "/v1/users"
-        ));
-        assert!(!provider_matches_host_and_path(
-            "clerk",
-            "api.clerk.com",
-            "/health"
-        ));
-    }
-
     // ── Cloudflare ─────────────────────────────────────────────────────
 
     #[test]
@@ -2800,6 +2793,146 @@ mod tests {
         );
     }
 
+    // ── app_availability_block (step 7) ────────────────────────────────
+
+    /// Build an `AvailableApps` allowlist for tests.
+    fn available(restricted: bool, providers: &[&str]) -> crate::db::AvailableApps {
+        crate::db::AvailableApps {
+            restricted,
+            providers: providers.iter().map(|s| (*s).to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn app_availability_block_open_allows_everything() {
+        // "open" org (the default / OSS / enforcement off): never blocks, even a
+        // provider absent from the (empty) list.
+        let open = available(false, &[]);
+        assert_eq!(
+            app_availability_block("gmail.googleapis.com", "/gmail/v1/users/me", &open),
+            None
+        );
+        assert_eq!(
+            app_availability_block("api.github.com", "/user", &open),
+            None
+        );
+    }
+
+    #[test]
+    fn app_availability_block_restricted_allows_granted_provider() {
+        let restricted = available(true, &["gmail", "github"]);
+        assert_eq!(
+            app_availability_block("gmail.googleapis.com", "/gmail/v1/users/me", &restricted),
+            None
+        );
+        assert_eq!(
+            app_availability_block("api.github.com", "/user", &restricted),
+            None
+        );
+    }
+
+    #[test]
+    fn app_availability_block_restricted_blocks_ungranted_provider() {
+        let restricted = available(true, &["slack"]);
+        assert_eq!(
+            app_availability_block("gmail.googleapis.com", "/gmail/v1/users/me", &restricted),
+            Some("gmail".to_string())
+        );
+        assert_eq!(
+            app_availability_block("api.github.com", "/user", &restricted),
+            Some("github".to_string())
+        );
+    }
+
+    #[test]
+    fn app_availability_block_never_blocks_raw_or_llm_hosts() {
+        // Restricted with an empty allowlist: even so, un-managed raw hosts and the
+        // LLM host resolve to no provider, so they are structurally never blocked
+        // (the enforce-deny / lifeline carve, for free).
+        let restricted = available(true, &[]);
+        assert_eq!(
+            app_availability_block("api.openai.com", "/v1/chat/completions", &restricted),
+            None
+        );
+        assert_eq!(
+            app_availability_block("api.anthropic.com", "/v1/messages", &restricted),
+            None
+        );
+        assert_eq!(
+            app_availability_block("example.com", "/anything", &restricted),
+            None
+        );
+    }
+
+    #[test]
+    fn app_availability_block_shared_host_disambiguates_by_path() {
+        // A shared host (www.googleapis.com) is governed per-provider by path.
+        let restricted = available(true, &["gmail"]);
+        // Granted provider on its path → allowed.
+        assert_eq!(
+            app_availability_block("www.googleapis.com", "/gmail/v1/users/me", &restricted),
+            None
+        );
+        // Ungranted provider on its path → blocked.
+        assert_eq!(
+            app_availability_block("www.googleapis.com", "/calendar/v3/calendars", &restricted),
+            Some("google-calendar".to_string())
+        );
+    }
+
+    #[test]
+    fn app_availability_block_shared_host_unknown_path_fails_open() {
+        // An ambiguous shared-host path resolves to no provider → not blocked
+        // (deliberate fail-open on ambiguity; policy + enforce-deny still govern).
+        let restricted = available(true, &[]);
+        assert_eq!(
+            app_availability_block(
+                "www.googleapis.com",
+                "/some-unknown-api/v1/resource",
+                &restricted
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn app_availability_block_strips_port_before_matching() {
+        // The real call site passes a host that carries the CONNECT-authority
+        // port (`:443`); the registry hosts are port-less, so the block must
+        // strip the port first or it would identify NO provider and silently
+        // never block. Regression guard for that class of port-handling bugs.
+        let restricted = available(true, &["slack"]);
+        assert_eq!(
+            app_availability_block(
+                "gmail.googleapis.com:443",
+                "/gmail/v1/users/me",
+                &restricted
+            ),
+            Some("gmail".to_string())
+        );
+        // ...and a granted provider on a port-bearing host is still allowed.
+        let granted = available(true, &["gmail"]);
+        assert_eq!(
+            app_availability_block("gmail.googleapis.com:443", "/gmail/v1/users/me", &granted),
+            None
+        );
+    }
+
+    #[test]
+    fn app_availability_block_is_case_insensitive_on_host() {
+        // A mixed-case Host must not slip past the gate — it normalizes to lower
+        // before matching, else `Gmail.Googleapis.Com` identifies no provider.
+        let restricted = available(true, &["slack"]);
+        assert_eq!(
+            app_availability_block(
+                "Gmail.Googleapis.Com:443",
+                "/gmail/v1/users/me",
+                &restricted
+            ),
+            Some("gmail".to_string())
+        );
+    }
+
     // ── host_has_path_scoped_providers ─────────────────────────────────
 
     #[test]
@@ -2838,7 +2971,6 @@ mod tests {
                 let host = match rule.pattern {
                     HostPattern::Exact(h) => h,
                     HostPattern::Suffix(_) => continue, // suffix rules don't share hosts
-                    HostPattern::Any => continue, // dynamic host-gated rules don't share hosts
                 };
                 let entry = hosts.entry(host).or_default();
                 if rule.path_prefix.is_some() {
@@ -3109,18 +3241,6 @@ mod tests {
         assert_eq!(
             credential_host_field("jfrog-artifactory", "nanos.jfrog.io"),
             Some("subdomain")
-        );
-    }
-
-    #[test]
-    fn gitlab_has_credential_host_field_for_public_and_self_hosted_instances() {
-        assert_eq!(
-            credential_host_field("gitlab", "gitlab.com"),
-            Some("instance_host")
-        );
-        assert_eq!(
-            credential_host_field("gitlab", "gitlab.example.com"),
-            Some("instance_host")
         );
     }
 
