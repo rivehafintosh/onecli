@@ -761,7 +761,7 @@ impl PolicyEngineExt for PolicyEngine {
         hostname: &str,
         selection: &db::InjectSelection,
     ) -> Result<Vec<db::AppConnectionRow>, ConnectError> {
-        let providers = apps::providers_for_host(hostname);
+        let providers = apps::providers_for_connection_host(hostname);
         if providers.is_empty() {
             debug!(host = %hostname, "app_connections: no provider for host");
             return Ok(vec![]);

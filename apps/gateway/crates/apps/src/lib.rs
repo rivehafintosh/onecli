@@ -1223,6 +1223,27 @@ static APP_PROVIDERS: &[AppProvider] = &[
         body_transform: None,
     },
     AppProvider {
+        provider: "n8n",
+        display_name: "n8n",
+        host_rules: &[HostRule {
+            pattern: HostPattern::Any,
+            path_prefix: None,
+            strategy: AuthStrategy::None,
+            intercept: false,
+            credential_host_field: Some("instance_host"),
+        }],
+        refresh: None,
+        metadata_headers: &[],
+        credential_headers: &[CredentialHeader {
+            credential_field: "apiKey",
+            header_name: "x-n8n-api-key",
+        }],
+        credential_params: &[],
+        host_rewrite: None,
+        finalizer: None,
+        body_transform: None,
+    },
+    AppProvider {
         provider: "jfrog-artifactory",
         display_name: "JFrog Artifactory",
         // Wildcard suffix: JFrog SaaS hosts are per-customer (`<name>.jfrog.io`).
@@ -2112,6 +2133,7 @@ pub fn injection_surface_samples() -> Vec<(&'static str, String, String)> {
             let host = match r.pattern {
                 HostPattern::Exact(h) => h.to_string(),
                 HostPattern::Suffix(s) => format!("probe{s}"),
+                HostPattern::Any => continue,
             };
             let path = r
                 .path_prefix
