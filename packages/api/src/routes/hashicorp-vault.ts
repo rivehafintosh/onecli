@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { ApiEnv } from "../types";
-import { authMiddleware, requireProjectId } from "../middleware/auth";
+import { authMiddleware, requireWorkspaceId } from "../middleware/auth";
 import { invalidateGatewayCache } from "../lib/gateway-invalidate";
 import {
   deleteHashicorpVaultMapping,
@@ -30,7 +30,7 @@ export const hashicorpVaultRoutes = () => {
 
   app.get("/mappings", async (c) => {
     const auth = c.get("auth");
-    return c.json(await listHashicorpVaultMappings(requireProjectId(auth)));
+    return c.json(await listHashicorpVaultMappings(requireWorkspaceId(auth)));
   });
 
   app.put("/mappings", async (c) => {
@@ -44,7 +44,7 @@ export const hashicorpVaultRoutes = () => {
       );
     }
     const mappings = await upsertHashicorpVaultMapping(
-      requireProjectId(auth),
+      requireWorkspaceId(auth),
       parsed.data,
     );
     invalidateGatewayCache(c.req.raw);
@@ -62,7 +62,7 @@ export const hashicorpVaultRoutes = () => {
       );
     }
     const mappings = await deleteHashicorpVaultMapping(
-      requireProjectId(auth),
+      requireWorkspaceId(auth),
       parsed.data,
     );
     invalidateGatewayCache(c.req.raw);
@@ -72,7 +72,7 @@ export const hashicorpVaultRoutes = () => {
   app.get("/paths", async (c) => {
     const auth = c.get("auth");
     const path = c.req.query("path") ?? "";
-    return c.json(await listHashicorpVaultPath(requireProjectId(auth), path));
+    return c.json(await listHashicorpVaultPath(requireWorkspaceId(auth), path));
   });
 
   app.get("/secrets/metadata", async (c) => {
@@ -80,7 +80,7 @@ export const hashicorpVaultRoutes = () => {
     const path = c.req.query("path");
     if (path === undefined) return c.json({ error: "path is required" }, 400);
     return c.json(
-      await getHashicorpVaultSecretMetadata(requireProjectId(auth), path),
+      await getHashicorpVaultSecretMetadata(requireWorkspaceId(auth), path),
     );
   });
 
@@ -95,7 +95,7 @@ export const hashicorpVaultRoutes = () => {
       );
     }
     const metadata = await writeHashicorpVaultSecretFields(
-      requireProjectId(auth),
+      requireWorkspaceId(auth),
       parsed.data.path,
       parsed.data.fields,
     );

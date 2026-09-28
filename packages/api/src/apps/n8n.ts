@@ -167,7 +167,6 @@ export const n8n: AppDefinition = {
     exchangeCredentials,
   },
   labelHint: 'e.g. "production", "home"',
-  available: true,
 };
 
 export const n8nAppInternals = {

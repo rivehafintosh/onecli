@@ -802,3 +802,22 @@ pub async fn delete_vault_connection(
         .context("deleting vault_connection")?;
     Ok(())
 }
+
+/// Remove per-agent references for a disconnected workspace vault provider.
+pub async fn delete_agent_vault_secrets_for_workspace_provider(
+    pool: &PgPool,
+    workspace_id: &str,
+    provider: &str,
+) -> Result<()> {
+    sqlx::query(
+        r#"DELETE FROM agent_vault_secrets
+           WHERE provider = $2
+             AND agent_id IN (SELECT id FROM agents WHERE workspace_id = $1)"#,
+    )
+    .bind(workspace_id)
+    .bind(provider)
+    .execute(pool)
+    .await
+    .context("deleting agent vault secret references")?;
+    Ok(())
+}

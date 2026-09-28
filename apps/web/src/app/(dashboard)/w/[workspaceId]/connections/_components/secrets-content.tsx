@@ -14,6 +14,7 @@ import { SecretDialog, type SecretPrefill } from "./secret-dialog";
 import type { SecretActions } from "./types";
 import { safeDecode } from "./safe-decode";
 import { labelForScope } from "./scope-label";
+import { isGenericLlmHost } from "./llm-generic-hosts";
 
 interface Secret {
   id: string;

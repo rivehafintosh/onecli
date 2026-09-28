@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Badge } from "@onecli/ui/components/badge";
-import { withProjectPrefix } from "@/lib/navigation";
+import { withWorkspacePrefix } from "@/lib/navigation";
 import { HashicorpVaultSetup } from "../../_components/hashicorp-vault-setup";
 
 export default function HashicorpVaultPage() {
@@ -12,8 +12,8 @@ export default function HashicorpVaultPage() {
   return (
     <div className="space-y-6">
       <Link
-        href={withProjectPrefix(pathname, "/connections/vaults")}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        href={withWorkspacePrefix(pathname, "/connections/vaults")}
+        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm transition-colors"
       >
         <ArrowLeft className="size-4" />
         Vaults
@@ -25,7 +25,7 @@ export default function HashicorpVaultPage() {
           </h1>
           <Badge
             variant="secondary"
-            className="text-[10px] font-normal px-1.5 py-0"
+            className="px-1.5 py-0 text-[10px] font-normal"
           >
             Beta
           </Badge>

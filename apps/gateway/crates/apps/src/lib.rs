@@ -133,6 +133,10 @@ pub struct RefreshConfig {
 pub struct CredentialHeader {
     pub credential_field: &'static str,
     pub header_name: &'static str,
+    /// Optional injection-rule path pattern. `None` applies to every rule.
+    pub path_pattern: Option<&'static str>,
+    /// Static text prepended to the credential value before injection.
+    pub value_prefix: &'static str,
 }
 
 /// Maps a credential JSON field to a URL query parameter injected on every request.
@@ -1370,14 +1374,20 @@ static APP_PROVIDERS: &[AppProvider] = &[
             CredentialHeader {
                 credential_field: "roleArn",
                 header_name: "x-onecli-aws-role-arn",
+                path_pattern: None,
+                value_prefix: "",
             },
             CredentialHeader {
                 credential_field: "externalId",
                 header_name: "x-onecli-aws-external-id",
+                path_pattern: None,
+                value_prefix: "",
             },
             CredentialHeader {
                 credential_field: "region",
                 header_name: "x-onecli-aws-assume-region",
+                path_pattern: None,
+                value_prefix: "",
             },
         ],
         credential_params: &[],
@@ -1417,10 +1427,14 @@ static APP_PROVIDERS: &[AppProvider] = &[
             CredentialHeader {
                 credential_field: "apiKey",
                 header_name: "DD-API-KEY",
+                path_pattern: None,
+                value_prefix: "",
             },
             CredentialHeader {
                 credential_field: "appKey",
                 header_name: "DD-APPLICATION-KEY",
+                path_pattern: None,
+                value_prefix: "",
             },
         ],
         credential_params: &[],
@@ -1992,7 +2006,7 @@ pub fn providers_for_host(hostname: &str) -> Vec<&'static str> {
 ///
 /// This includes dynamic host-gated providers such as self-hosted GitLab. Do
 /// not use this for general provider discovery or user-facing host hints.
-pub(crate) fn providers_for_connection_host(hostname: &str) -> Vec<&'static str> {
+pub fn providers_for_connection_host(hostname: &str) -> Vec<&'static str> {
     let mut providers = Vec::new();
     for provider in all_providers() {
         for rule in provider.host_rules {

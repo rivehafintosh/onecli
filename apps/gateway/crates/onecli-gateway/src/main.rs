@@ -30,6 +30,7 @@ use ca::CertificateAuthority;
 use context::PolicyEngine;
 use server::{Entrypoint, GatewayServer};
 use vault::bitwarden::{BitwardenConfig, BitwardenVaultProvider};
+use vault::hashicorp::HashicorpVaultProvider;
 use vault::onepassword::OnePasswordVaultProvider;
 use vault::{VaultProvider, VaultService};
 
@@ -235,7 +236,11 @@ async fn main() -> Result<()> {
         policy_engine.pool.clone(),
         Arc::clone(&crypto),
     );
-    let providers: Vec<Arc<dyn VaultProvider>> = vec![Arc::new(bitwarden), onepassword];
+    let hashicorp = Arc::new(HashicorpVaultProvider::new(
+        policy_engine.pool.clone(),
+        Arc::clone(&crypto),
+    ));
+    let providers: Vec<Arc<dyn VaultProvider>> = vec![Arc::new(bitwarden), onepassword, hashicorp];
     let vault_service = Arc::new(VaultService::new(providers, policy_engine.pool.clone()));
     info!("vault service initialized");
 

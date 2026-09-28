@@ -46,6 +46,10 @@ interface SecretCardProps {
     injectionConfig: unknown;
     metadata: Record<string, unknown> | null;
     createdAt: Date;
+    source?: "db" | "vault";
+    vaultProvider?: string;
+    vaultPath?: string;
+    vaultField?: string;
   };
   onUpdate?: () => void;
   secretActions?: SecretActions;

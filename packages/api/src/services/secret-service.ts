@@ -43,24 +43,6 @@ const SECRET_TYPE_LABELS: Record<string, string> = {
   generic: "Generic Secret",
 };
 
-const HASHICORP_VAULT_PROVIDER = "hashicorp-vault";
-
-interface VaultCredentialMapping {
-  hostname?: unknown;
-  path?: unknown;
-  field?: unknown;
-}
-
-interface NormalizedVaultCredentialMapping {
-  hostname: string;
-  path: string;
-  field: string;
-}
-
-interface HashicorpVaultConnectionData {
-  mappings?: unknown;
-}
-
 const buildPreview = (plaintext: string): string => {
   if (plaintext.length <= 8) return "•".repeat(plaintext.length);
   return `${plaintext.slice(0, 4)}${"•".repeat(8)}${plaintext.slice(-4)}`;
@@ -163,23 +145,26 @@ const LAST_ERROR_WINDOW_DAYS = 7;
 const KEY_PROBLEM_STATUSES = new Set([401, 402, 403, 429]);
 
 export const listSecrets = async (scope: ResourceScope) => {
-  const secrets = await db.secret.findMany({
-    where: scopeWhere(scope),
-    select: {
-      id: true,
-      name: true,
-      type: true,
-      valueSource: true,
-      opRef: true,
-      hostPattern: true,
-      pathPattern: true,
-      injectionConfig: true,
-      metadata: true,
-      scope: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const [dbSecrets, vaultSecrets] = await Promise.all([
+    db.secret.findMany({
+      where: scopeWhere(scope),
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        valueSource: true,
+        opRef: true,
+        hostPattern: true,
+        pathPattern: true,
+        injectionConfig: true,
+        metadata: true,
+        scope: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    listHashicorpVaultSecretReferencesForScope(scope),
+  ]);
 
   // The key's recent health, from the gateway's request log: for each LLM
   // key's host, the latest injected upstream call within the recency window.
@@ -206,7 +191,7 @@ export const listSecrets = async (scope: ResourceScope) => {
   const MAX_HEALTH_HOSTS = 20;
   const llmHosts = [
     ...new Set(
-      secrets
+      dbSecrets
         .filter((s) => s.type !== "generic")
         .map((s) => s.hostPattern)
         .filter((host) => Boolean(host) && !/[*%_\\]/.test(host)),
@@ -256,7 +241,7 @@ export const listSecrets = async (scope: ResourceScope) => {
     );
   }
 
-  return secrets.map((s) => ({
+  const secrets = dbSecrets.map((s) => ({
     ...s,
     typeLabel: SECRET_TYPE_LABELS[s.type] ?? s.type,
     // LLM keys only, per the published contract — a generic secret that
@@ -267,7 +252,7 @@ export const listSecrets = async (scope: ResourceScope) => {
         : null,
   }));
 
-  return [...dbSecrets, ...vaultSecrets];
+  return [...secrets, ...vaultSecrets];
 };
 
 /**
@@ -432,7 +417,7 @@ export const createSecret = async (
 
 export const deleteSecret = async (scope: ResourceScope, secretId: string) => {
   const deletedVaultReference = await deleteHashicorpVaultSecretReference(
-    scope.projectId,
+    scope.workspaceId,
     secretId,
   );
   if (deletedVaultReference) return;
@@ -453,7 +438,7 @@ export const updateSecret = async (
   input: UpdateSecretInput,
 ) => {
   const updatedVaultReference = await updateHashicorpVaultSecretReference(
-    scope.projectId,
+    scope.workspaceId,
     secretId,
     {
       hostPattern: input.hostPattern,

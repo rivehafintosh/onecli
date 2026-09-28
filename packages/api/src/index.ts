@@ -19,4 +19,4 @@ export {
 } from "./providers";
 export type { SessionHooks } from "./routes/auth-session";
 export { initSessionHooks } from "./routes/auth-session";
-export { auth, requireProjectId } from "./middleware/auth";
+export { auth, requireWorkspaceId } from "./middleware/auth";

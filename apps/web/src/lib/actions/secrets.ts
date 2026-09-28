@@ -20,8 +20,6 @@ import {
   AUDIT_SERVICES,
 } from "@onecli/api/services/audit-service";
 
-const toPlainObject = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-
 export const getSecrets = async () => {
   const { workspaceId } = await resolveWorkspaceContext();
   return listSecrets({ workspaceId });

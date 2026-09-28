@@ -55,6 +55,9 @@ export interface HashicorpVaultStatusData {
     capabilities: string[];
   }>;
   capabilities_error: string | null;
+  validation_error: string | null;
+  last_known_policies: string[];
+  last_known_token_path: string | null;
 }
 
 export const useVaultStatus = <T = unknown>(provider: string = "bitwarden") => {

@@ -5,6 +5,7 @@
 
 pub mod bitwarden;
 pub mod bitwarden_db;
+pub mod hashicorp;
 pub mod onepassword;
 pub mod onepassword_api;
 
@@ -24,6 +25,7 @@ pub struct VaultCredential {
     #[allow(dead_code)]
     pub username: Option<String>,
     pub password: Option<String>,
+    pub path_pattern: Option<String>,
 }
 
 /// Result of a successful pairing operation.

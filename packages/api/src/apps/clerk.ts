@@ -46,5 +46,4 @@ export const clerk: AppDefinition = {
     },
   },
   labelHint: 'e.g. "production", "staging"',
-  available: true,
 };

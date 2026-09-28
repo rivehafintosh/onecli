@@ -79,6 +79,7 @@ import { installRoutes } from "./routes/install";
 import { onboardingRoutes } from "./routes/onboarding";
 import { faviconRoutes } from "./routes/favicon";
 import { workspaceRoutes } from "./routes/workspaces";
+import { hashicorpVaultRoutes } from "./routes/hashicorp-vault";
 import { orgPolicyRoutes } from "./routes/org-policy";
 import { orgSecretRoutes } from "./routes/org-secrets";
 import { orgConnectionRoutes } from "./routes/org-connections";
@@ -192,6 +193,7 @@ export const createApiApp = (
   // Workspace CRUD; the org-scoped access surface (`workspaceAccessRoutes`)
   // composes onto this same base path from the EE block below.
   app.route("/workspaces", workspaceRoutes());
+  app.route("/hashicorp-vault", hashicorpVaultRoutes());
   // The current-org read (bare /v1/org). Its middleware is per-handler, never
   // `use("*")`, so it cannot shadow the /org/<segment> routers around it.
   app.route("/org", orgRoutes());

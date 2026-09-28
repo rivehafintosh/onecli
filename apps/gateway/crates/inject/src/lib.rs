@@ -554,7 +554,7 @@ pub fn vault_credential_to_rules(hostname: &str, cred: &VaultCredential) -> Vec<
     };
 
     vec![InjectionRule {
-        path_pattern: "*".to_string(),
+        path_pattern: cred.path_pattern.clone().unwrap_or_else(|| "*".to_string()),
         injections,
     }]
 }
@@ -1260,6 +1260,7 @@ mod tests {
         VaultCredential {
             username: None,
             password: password.map(|s| s.to_string()),
+            path_pattern: None,
         }
     }
 

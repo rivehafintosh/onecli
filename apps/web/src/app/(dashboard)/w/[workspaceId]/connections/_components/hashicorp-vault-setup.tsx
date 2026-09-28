@@ -58,6 +58,7 @@ export const HashicorpVaultSetup = () => {
   const [mappingsJson, setMappingsJson] = useState(
     '[\n  { "hostname": "api.openai.com", "path": "agents/openai", "field": "api_key" }\n]',
   );
+  const [renewalToken, setRenewalToken] = useState("");
 
   const canConnect = address.trim().length > 0 && token.trim().length > 0;
   const statusData = status?.status_data;
@@ -66,6 +67,7 @@ export const HashicorpVaultSetup = () => {
       ...(statusData?.token?.policies ?? []),
       ...(statusData?.token?.token_policies ?? []),
       ...(statusData?.token?.identity_policies ?? []),
+      ...(statusData?.last_known_policies ?? []),
     ]),
   ).sort();
 
@@ -100,6 +102,19 @@ export const HashicorpVaultSetup = () => {
       mappings,
     });
     if (success) setToken("");
+  };
+
+  const handleRenewAccess = async () => {
+    if (!statusData || !renewalToken.trim()) return;
+    const success = await pairWithPayload({
+      address: statusData.address,
+      token: renewalToken.trim(),
+      mount: statusData.mount,
+      path_prefix: statusData.path_prefix,
+      namespace: statusData.namespace ?? undefined,
+      kv_version: statusData.kv_version,
+    });
+    if (success) setRenewalToken("");
   };
 
   if (loading) {
@@ -194,7 +209,11 @@ export const HashicorpVaultSetup = () => {
               <div className="grid gap-3 sm:grid-cols-2">
                 <ReadOnlyField
                   label="Auth path"
-                  value={statusData?.token?.path ?? undefined}
+                  value={
+                    statusData?.token?.path ??
+                    statusData?.last_known_token_path ??
+                    undefined
+                  }
                 />
                 <ReadOnlyField
                   label="TTL"
@@ -247,6 +266,33 @@ export const HashicorpVaultSetup = () => {
                 <AlertCircle className="mt-0.5 size-4 shrink-0" />
                 <div className="grid gap-1.5">
                   <span>Vault token validation failed.</span>
+                  <span className="text-muted-foreground text-xs">
+                    {statusData?.validation_error ??
+                      "Enter a replacement token with the policy shown above."}
+                  </span>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      type="password"
+                      value={renewalToken}
+                      onChange={(event) => setRenewalToken(event.target.value)}
+                      placeholder="Replacement Vault token"
+                      className="bg-background font-mono text-sm"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleRenewAccess}
+                      loading={pairing}
+                      disabled={!renewalToken.trim() || pairing}
+                    >
+                      Renew access
+                    </Button>
+                  </div>
+                  <span className="text-muted-foreground text-xs">
+                    Existing host and path mappings are retained during renewal.
+                    Disconnect the vault below to remove them if renewal is not
+                    possible.
+                  </span>
                   <button
                     onClick={fetchStatus}
                     className="text-muted-foreground hover:text-foreground flex w-fit items-center gap-1 text-xs underline-offset-2 hover:underline"

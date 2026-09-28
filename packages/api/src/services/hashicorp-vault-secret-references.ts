@@ -99,12 +99,12 @@ export const parseVaultSecretId = (id: string): VaultSecretReference | null => {
   }
 };
 
-export const listHashicorpVaultSecretReferencesForProject = async (
-  projectId: string,
+export const listHashicorpVaultSecretReferencesForWorkspace = async (
+  workspaceId: string,
 ) => {
   const vaultConnection = await db.vaultConnection.findFirst({
     where: {
-      projectId,
+      workspaceId,
       provider: HASHICORP_VAULT_PROVIDER,
       status: "connected",
     },
@@ -121,13 +121,13 @@ export const listHashicorpVaultSecretReferencesForProject = async (
 };
 
 export const listHashicorpVaultSecretReferencesForScope = async (scope: {
-  projectId?: string;
+  workspaceId?: string;
 }) => {
-  if (!scope.projectId) return [];
+  if (!scope.workspaceId) return [];
 
   const vaultConnection = await db.vaultConnection.findFirst({
     where: {
-      projectId: scope.projectId,
+      workspaceId: scope.workspaceId,
       provider: HASHICORP_VAULT_PROVIDER,
       status: "connected",
     },
@@ -176,9 +176,13 @@ const listHashicorpVaultSecretReferences = async (
         hostPattern: hostname,
         pathPattern: getPathPattern(mapping),
         injectionConfig: Prisma.JsonNull,
+        metadata: null,
+        valueSource: undefined,
+        opRef: null,
         isPlatform: false,
-        scope: "project",
+        scope: "workspace",
         createdAt: updatedAt ?? new Date(0),
+        lastError: null,
         source: "vault" as const,
         vaultProvider: HASHICORP_VAULT_PROVIDER,
         vaultPath: path,
@@ -217,7 +221,7 @@ const encryptHashicorpConnectionData = async (
 };
 
 export const updateHashicorpVaultSecretReference = async (
-  projectId: string | undefined,
+  workspaceId: string | undefined,
   secretId: string,
   input: {
     hostPattern?: string;
@@ -226,16 +230,16 @@ export const updateHashicorpVaultSecretReference = async (
 ) => {
   const reference = parseVaultSecretId(secretId);
   if (reference?.provider !== HASHICORP_VAULT_PROVIDER) return false;
-  if (!projectId) {
+  if (!workspaceId) {
     throw new ServiceError(
       "BAD_REQUEST",
-      "HashiCorp Vault mappings are only available per project",
+      "HashiCorp Vault mappings are only available per workspace",
     );
   }
 
   const vaultConnection = await db.vaultConnection.findFirst({
     where: {
-      projectId,
+      workspaceId,
       provider: HASHICORP_VAULT_PROVIDER,
       status: "connected",
     },
@@ -302,21 +306,21 @@ export const updateHashicorpVaultSecretReference = async (
 };
 
 export const deleteHashicorpVaultSecretReference = async (
-  projectId: string | undefined,
+  workspaceId: string | undefined,
   secretId: string,
 ) => {
   const reference = parseVaultSecretId(secretId);
   if (reference?.provider !== HASHICORP_VAULT_PROVIDER) return false;
-  if (!projectId) {
+  if (!workspaceId) {
     throw new ServiceError(
       "BAD_REQUEST",
-      "HashiCorp Vault mappings are only available per project",
+      "HashiCorp Vault mappings are only available per workspace",
     );
   }
 
   const vaultConnection = await db.vaultConnection.findFirst({
     where: {
-      projectId,
+      workspaceId,
       provider: HASHICORP_VAULT_PROVIDER,
       status: "connected",
     },

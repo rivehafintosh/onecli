@@ -1,6 +1,6 @@
 "use server";
 
-import { resolveProjectContext } from "@/lib/actions/resolve-user";
+import { resolveWorkspaceContext } from "@/lib/actions/resolve-user";
 import {
   listHashicorpVaultMappings,
   listHashicorpVaultPath,
@@ -17,29 +17,29 @@ import {
 } from "@onecli/api/services/audit-service";
 
 export const getHashicorpVaultMappings = async () => {
-  const { projectId } = await resolveProjectContext();
-  return listHashicorpVaultMappings(projectId);
+  const { workspaceId } = await resolveWorkspaceContext();
+  return listHashicorpVaultMappings(workspaceId);
 };
 
 export const browseHashicorpVaultPath = async (path: string) => {
-  const { projectId } = await resolveProjectContext();
-  return listHashicorpVaultPath(projectId, path);
+  const { workspaceId } = await resolveWorkspaceContext();
+  return listHashicorpVaultPath(workspaceId, path);
 };
 
 export const getHashicorpVaultPathMetadata = async (path: string) => {
-  const { projectId } = await resolveProjectContext();
-  return getHashicorpVaultSecretMetadata(projectId, path);
+  const { workspaceId } = await resolveWorkspaceContext();
+  return getHashicorpVaultSecretMetadata(workspaceId, path);
 };
 
 export const writeHashicorpVaultFields = async (
   path: string,
   fields: Record<string, string>,
 ) => {
-  const { userId, userEmail, projectId } = await resolveProjectContext();
+  const { userId, userEmail, workspaceId } = await resolveWorkspaceContext();
   return withAudit(
-    () => writeHashicorpVaultSecretFields(projectId, path, fields),
+    () => writeHashicorpVaultSecretFields(workspaceId, path, fields),
     () => ({
-      projectId,
+      workspaceId,
       userId,
       userEmail,
       action: AUDIT_ACTIONS.UPDATE,
@@ -56,11 +56,11 @@ export const writeHashicorpVaultFields = async (
 export const saveHashicorpVaultMapping = async (
   input: UpsertVaultMappingInput,
 ) => {
-  const { userId, userEmail, projectId } = await resolveProjectContext();
+  const { userId, userEmail, workspaceId } = await resolveWorkspaceContext();
   return withAudit(
-    () => upsertHashicorpVaultMapping(projectId, input),
+    () => upsertHashicorpVaultMapping(workspaceId, input),
     () => ({
-      projectId,
+      workspaceId,
       userId,
       userEmail,
       action: AUDIT_ACTIONS.UPDATE,
@@ -78,11 +78,11 @@ export const saveHashicorpVaultMapping = async (
 export const removeHashicorpVaultMapping = async (
   input: UpsertVaultMappingInput,
 ) => {
-  const { userId, userEmail, projectId } = await resolveProjectContext();
+  const { userId, userEmail, workspaceId } = await resolveWorkspaceContext();
   return withAudit(
-    () => deleteHashicorpVaultMapping(projectId, input),
+    () => deleteHashicorpVaultMapping(workspaceId, input),
     () => ({
-      projectId,
+      workspaceId,
       userId,
       userEmail,
       action: AUDIT_ACTIONS.DELETE,

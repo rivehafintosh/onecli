@@ -17,8 +17,7 @@ use sqlx::PgPool;
 use tracing::warn;
 
 use super::{PairResult, ProviderStatus, VaultCredential, VaultProvider};
-use crate::crypto::CryptoService;
-use crate::db;
+use crypto::CryptoService;
 
 const PROVIDER: &str = "hashicorp-vault";
 const DEFAULT_MOUNT: &str = "kv";
@@ -36,6 +35,10 @@ struct HashicorpVaultConnectionData {
     kv_version: u8,
     #[serde(default)]
     mappings: Vec<CredentialMapping>,
+    #[serde(default)]
+    last_known_policies: Vec<String>,
+    #[serde(default)]
+    last_known_token_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,8 +68,7 @@ struct PairParams {
     ca_cert_pem: Option<String>,
     #[serde(default)]
     kv_version: Option<u8>,
-    #[serde(default)]
-    mappings: Vec<CredentialMapping>,
+    mappings: Option<Vec<CredentialMapping>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,13 +95,13 @@ struct CapabilityStatus {
     capabilities: Vec<String>,
 }
 
-pub(crate) struct HashicorpVaultProvider {
+pub struct HashicorpVaultProvider {
     pool: PgPool,
     crypto: Arc<CryptoService>,
 }
 
 impl HashicorpVaultProvider {
-    pub(crate) fn new(pool: PgPool, crypto: Arc<CryptoService>) -> Self {
+    pub fn new(pool: PgPool, crypto: Arc<CryptoService>) -> Self {
         Self { pool, crypto }
     }
 
@@ -262,7 +264,21 @@ impl VaultProvider for HashicorpVaultProvider {
     async fn pair(&self, project_id: &str, params: &serde_json::Value) -> Result<PairResult> {
         let params: PairParams = serde_json::from_value(params.clone())
             .context("invalid HashiCorp Vault connection params")?;
-        let data = HashicorpVaultConnectionData {
+        let existing = self.load_connection(project_id).await?.unwrap_or_else(|| {
+            HashicorpVaultConnectionData {
+                address: String::new(),
+                token: String::new(),
+                mount: DEFAULT_MOUNT.to_string(),
+                path_prefix: DEFAULT_PATH_PREFIX.to_string(),
+                namespace: None,
+                ca_cert_pem: None,
+                kv_version: DEFAULT_KV_VERSION,
+                mappings: vec![],
+                last_known_policies: vec![],
+                last_known_token_path: None,
+            }
+        });
+        let mut data = HashicorpVaultConnectionData {
             address: normalize_address(&params.address)?,
             token: require_non_empty(params.token, "token")?,
             mount: normalize_segment(params.mount.as_deref().unwrap_or(DEFAULT_MOUNT), "mount")?,
@@ -272,7 +288,12 @@ impl VaultProvider for HashicorpVaultProvider {
             namespace: params.namespace.and_then(|s| non_empty_trimmed(&s)),
             ca_cert_pem: params.ca_cert_pem.and_then(|s| non_empty_trimmed(&s)),
             kv_version: params.kv_version.unwrap_or(DEFAULT_KV_VERSION),
-            mappings: normalize_mappings(params.mappings)?,
+            mappings: match params.mappings {
+                Some(mappings) => normalize_mappings(mappings)?,
+                None => existing.mappings,
+            },
+            last_known_policies: existing.last_known_policies,
+            last_known_token_path: existing.last_known_token_path,
         };
 
         if data.kv_version != 1 && data.kv_version != 2 {
@@ -280,6 +301,8 @@ impl VaultProvider for HashicorpVaultProvider {
         }
 
         let token_status = self.validate(&data).await?;
+        data.last_known_policies = token_status.policies.clone();
+        data.last_known_token_path = token_status.path.clone();
         let encrypted = encrypt_connection_data(&self.crypto, &data).await?;
         db::upsert_vault_connection(
             &self.pool,
@@ -300,67 +323,19 @@ impl VaultProvider for HashicorpVaultProvider {
         project_id: &str,
         hostname: &str,
     ) -> Option<VaultCredential> {
-        self.request_credentials(project_id, hostname, None, false)
-            .await
-            .into_iter()
-            .next()
-    }
-
-    async fn request_credentials(
-        &self,
-        project_id: &str,
-        hostname: &str,
-        agent_id: Option<&str>,
-        selective: bool,
-    ) -> Vec<VaultCredential> {
-        let mut data = match self.load_connection(project_id).await {
+        let data = match self.load_connection(project_id).await {
             Ok(Some(data)) => data,
-            Ok(None) => return vec![],
+            Ok(None) => return None,
             Err(e) => {
                 warn!(error = %e, "failed to load HashiCorp Vault connection");
-                return vec![];
+                return None;
             }
         };
-
-        if selective {
-            let Some(agent_id) = agent_id else {
-                return vec![];
-            };
-            let assignments = match db::find_agent_vault_secrets_by_provider_host(
-                &self.pool, agent_id, PROVIDER, hostname,
-            )
-            .await
-            {
-                Ok(assignments) => assignments,
-                Err(e) => {
-                    warn!(error = %e, "failed to load HashiCorp Vault assignments");
-                    return vec![];
-                }
-            };
-            if assignments.is_empty() {
-                return vec![];
-            }
-
-            data.mappings.retain(|mapping| {
-                assignments.iter().any(|assignment| {
-                    mapping
-                        .hostname
-                        .trim()
-                        .eq_ignore_ascii_case(&assignment.hostname)
-                        && mapping.path.trim() == assignment.path
-                        && mapping.field.trim() == assignment.field
-                })
-            });
-            if data.mappings.is_empty() {
-                return vec![];
-            }
-        }
-
-        match self.read_secrets(&data, hostname, !selective).await {
-            Ok(credentials) => credentials,
+        match self.read_secrets(&data, hostname, true).await {
+            Ok(credentials) => credentials.into_iter().next(),
             Err(e) => {
                 warn!(host = %hostname, error = %e, "HashiCorp Vault credential lookup failed");
-                vec![]
+                None
             }
         }
     }
@@ -386,6 +361,7 @@ impl VaultProvider for HashicorpVaultProvider {
         } else {
             (vec![], None)
         };
+        let validation_error = validation.as_ref().err().map(ToString::to_string);
         let token = validation.as_ref().ok().cloned();
         ProviderStatus {
             connected: validation.is_ok(),
@@ -401,13 +377,18 @@ impl VaultProvider for HashicorpVaultProvider {
                 "kv_version": data.kv_version,
                 "mappings_count": data.mappings.len(),
                 "token": token,
+                "last_known_policies": data.last_known_policies,
+                "last_known_token_path": data.last_known_token_path,
+                "validation_error": validation_error,
                 "capabilities": capabilities,
                 "capabilities_error": capabilities_error,
             })),
         }
     }
 
-    async fn disconnect(&self, _project_id: &str) -> Result<()> {
+    async fn disconnect(&self, project_id: &str) -> Result<()> {
+        db::delete_agent_vault_secrets_for_workspace_provider(&self.pool, project_id, PROVIDER)
+            .await?;
         Ok(())
     }
 }
@@ -784,6 +765,8 @@ mod tests {
             ca_cert_pem: None,
             kv_version: 2,
             mappings: vec![],
+            last_known_policies: vec![],
+            last_known_token_path: None,
         };
         let paths: Vec<String> = candidate_lookups(&data, "api.openai.com", true)
             .into_iter()
@@ -851,6 +834,8 @@ mod mapping_tests {
                 path_pattern_field: None,
                 username_field: None,
             }],
+            last_known_policies: vec![],
+            last_known_token_path: None,
         };
         let lookups = candidate_lookups(&data, "api.anthropic.com", true);
         assert_eq!(lookups[0].api_path, "secret/data/agents/anthropic");
@@ -876,6 +861,8 @@ mod mapping_tests {
                 path_pattern_field: None,
                 username_field: None,
             }],
+            last_known_policies: vec![],
+            last_known_token_path: None,
         };
         let lookups = candidate_lookups(&data, "hass.example.com", true);
         assert_eq!(lookups[0].api_path, "kv/data/onecli/homeassistant");
@@ -900,6 +887,8 @@ mod mapping_tests {
                 path_pattern_field: None,
                 username_field: None,
             }],
+            last_known_policies: vec![],
+            last_known_token_path: None,
         };
         let lookups = candidate_lookups(&data, "db.example.com", true);
         assert_eq!(lookups[0].api_path, "team-secrets/data/prod/database");

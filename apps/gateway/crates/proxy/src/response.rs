@@ -208,7 +208,7 @@ pub fn credential_not_found<S>(
 ) -> Response<ForwardBody<S>> {
     let base = scoped_url(dashboard_url(), "", workspace_id);
     let encoded_host = utf8_percent_encode(hostname, NON_ALPHANUMERIC);
-    let tab = if crate::policy::is_llm_host(hostname) {
+    let tab = if policy::is_llm_host(hostname) {
         "llms"
     } else {
         "custom"

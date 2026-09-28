@@ -1558,6 +1558,7 @@ impl PolicyEngineExt for PolicyEngine {
                             refresh_token,
                             byoc_id,
                             byoc_secret,
+                            creds.get("token_url").and_then(|value| value.as_str()),
                         )
                         .await
                         {

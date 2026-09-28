@@ -44,16 +44,16 @@ export interface UpsertVaultMappingInput {
   usernameField?: string;
 }
 
-export const listHashicorpVaultMappings = async (projectId: string) => {
-  const data = await loadHashicorpConnection(projectId);
+export const listHashicorpVaultMappings = async (workspaceId: string) => {
+  const data = await loadHashicorpConnection(workspaceId);
   return data.mappings;
 };
 
 export const listHashicorpVaultPath = async (
-  projectId: string,
+  workspaceId: string,
   path = "",
 ): Promise<VaultPathEntry[]> => {
-  const data = await loadHashicorpConnection(projectId);
+  const data = await loadHashicorpConnection(workspaceId);
   const logicalPath = normalizeVaultPath(path);
   const target = vaultTarget(data, logicalPath);
   const apiPath =
@@ -80,10 +80,10 @@ export const listHashicorpVaultPath = async (
 };
 
 export const getHashicorpVaultSecretMetadata = async (
-  projectId: string,
+  workspaceId: string,
   path: string,
 ): Promise<VaultSecretMetadata> => {
-  const data = await loadHashicorpConnection(projectId);
+  const data = await loadHashicorpConnection(workspaceId);
   const logicalPath = normalizeVaultPath(path);
   const target = vaultTarget(data, logicalPath);
   const secret = await readSecretData(data, target);
@@ -95,11 +95,11 @@ export const getHashicorpVaultSecretMetadata = async (
 };
 
 export const writeHashicorpVaultSecretFields = async (
-  projectId: string,
+  workspaceId: string,
   path: string,
   fields: Record<string, string>,
 ): Promise<VaultSecretMetadata> => {
-  const data = await loadHashicorpConnection(projectId);
+  const data = await loadHashicorpConnection(workspaceId);
   const logicalPath = normalizeVaultPath(path);
   const target = vaultTarget(data, logicalPath);
   const cleanFields = Object.fromEntries(
@@ -131,18 +131,20 @@ export const writeHashicorpVaultSecretFields = async (
   } else {
     await vaultRequest(data, "POST", apiPath, cleanFields);
   }
-  return getHashicorpVaultSecretMetadata(projectId, logicalPath).catch(() => ({
-    path: logicalPath,
-    fields: Object.keys(cleanFields).sort(),
-    mappings: data.mappings.filter((mapping) => mapping.path === logicalPath),
-  }));
+  return getHashicorpVaultSecretMetadata(workspaceId, logicalPath).catch(
+    () => ({
+      path: logicalPath,
+      fields: Object.keys(cleanFields).sort(),
+      mappings: data.mappings.filter((mapping) => mapping.path === logicalPath),
+    }),
+  );
 };
 
 export const upsertHashicorpVaultMapping = async (
-  projectId: string,
+  workspaceId: string,
   input: UpsertVaultMappingInput,
 ) => {
-  const data = await loadHashicorpConnection(projectId);
+  const data = await loadHashicorpConnection(workspaceId);
   const mapping = normalizeMapping(input);
   const nextMappings = [
     ...data.mappings.filter(
@@ -155,15 +157,18 @@ export const upsertHashicorpVaultMapping = async (
     ),
     mapping,
   ].sort((a, b) => a.hostname.localeCompare(b.hostname));
-  await saveHashicorpConnection(projectId, { ...data, mappings: nextMappings });
+  await saveHashicorpConnection(workspaceId, {
+    ...data,
+    mappings: nextMappings,
+  });
   return nextMappings;
 };
 
 export const deleteHashicorpVaultMapping = async (
-  projectId: string,
+  workspaceId: string,
   input: UpsertVaultMappingInput,
 ) => {
-  const data = await loadHashicorpConnection(projectId);
+  const data = await loadHashicorpConnection(workspaceId);
   const mapping = normalizeMapping(input);
   const nextMappings = data.mappings.filter(
     (existing) =>
@@ -173,15 +178,18 @@ export const deleteHashicorpVaultMapping = async (
         existing.field === mapping.field
       ),
   );
-  await saveHashicorpConnection(projectId, { ...data, mappings: nextMappings });
+  await saveHashicorpConnection(workspaceId, {
+    ...data,
+    mappings: nextMappings,
+  });
   return nextMappings;
 };
 
 const loadHashicorpConnection = async (
-  projectId: string,
+  workspaceId: string,
 ): Promise<HashicorpVaultConnectionData> => {
   const row = await db.vaultConnection.findFirst({
-    where: { projectId, provider: PROVIDER, status: "connected" },
+    where: { workspaceId, provider: PROVIDER, status: "connected" },
     select: { connectionData: true },
   });
   if (!row?.connectionData) {
@@ -196,14 +204,14 @@ const loadHashicorpConnection = async (
 };
 
 const saveHashicorpConnection = async (
-  projectId: string,
+  workspaceId: string,
   data: HashicorpVaultConnectionData,
 ) => {
   const encrypted = await getCrypto().encrypt(JSON.stringify(data));
   await db.vaultConnection.update({
     where: {
-      projectId_provider: {
-        projectId,
+      workspaceId_provider: {
+        workspaceId,
         provider: PROVIDER,
       },
     },
